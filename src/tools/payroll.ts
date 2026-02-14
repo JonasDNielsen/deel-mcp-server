@@ -5,6 +5,53 @@ import { success, error } from "../types.js";
 
 export function registerPayrollTools(server: McpServer): void {
   server.tool(
+    "deel_get_payroll_calendar",
+    "Get a payroll calendar view showing report status across all legal entities. Shows which entities have OPEN, LOCKED, or CLOSED payroll for each month.",
+    {},
+    async () => {
+      try {
+        // Get all legal entities
+        const entRes = await deelRequest<Array<Record<string, unknown>>>("/legal-entities");
+        const entities = entRes.data;
+        if (!entities || entities.length === 0) {
+          return success("No legal entities found.");
+        }
+
+        let output = "Payroll Calendar:\n\n";
+        for (const entity of entities) {
+          const entityId = String(entity.id);
+          const entityName = String(entity.name ?? "Unknown");
+          try {
+            const repRes = await deelRequest<Array<Record<string, unknown>>>(`/gp/legal-entities/${entityId}/reports`);
+            const reports = repRes.data;
+            if (!reports || reports.length === 0) {
+              output += `${entityName}: No payroll reports\n\n`;
+              continue;
+            }
+            output += `${entityName}:\n`;
+            // Sort by start_date descending
+            reports.sort((a, b) => String(b.start_date ?? "").localeCompare(String(a.start_date ?? "")));
+            for (const r of reports) {
+              const start = r.start_date ? String(r.start_date).slice(0, 7) : "?";
+              const status = String(r.status ?? "N/A");
+              const lockDate = r.lock_date ? String(r.lock_date).slice(0, 10) : null;
+              output += `  ${start}: ${status}`;
+              if (lockDate) output += ` (lock: ${lockDate})`;
+              output += ` [ID: ${r.id}]\n`;
+            }
+            output += "\n";
+          } catch {
+            output += `${entityName}: Unable to fetch reports\n\n`;
+          }
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
     "deel_get_payroll_reports",
     "Get payroll event reports for a legal entity, showing payroll runs and their status.",
     {
@@ -92,8 +139,21 @@ export function registerPayrollTools(server: McpServer): void {
             return fallback;
           };
 
-          let output = `Gross-to-net breakdown for report ${gp_report_id} (${data.length} worker(s)):\n\n`;
-          for (const item of data) {
+          // Filter out ghost/empty rows (API sometimes returns trailing null entries)
+          const validData = data.filter(item => {
+            const row = item as Record<string, unknown>;
+            const nameField = row.employeeName as Record<string, unknown> | undefined;
+            return nameField?.currentValue != null;
+          });
+
+          let output = `Gross-to-net breakdown for report ${gp_report_id} (${validData.length} worker(s)):\n\n`;
+          let totalGrossUsd = 0;
+          let totalNetUsd = 0;
+          let totalEmployerCostUsd = 0;
+          let reportCurrency = "";
+          let reportFxRate = 1;
+
+          for (const item of validData) {
             const row = item as Record<string, unknown>;
             const name = textVal(row.employeeName);
             const jobTitle = textVal(row.jobTitle);
@@ -103,10 +163,17 @@ export function registerPayrollTools(server: McpServer): void {
             const fxRate = numVal(row.fxRate) ?? 1;
             const contractId = textVal(row.contractId);
 
-            const baseSalary = fmtLocal(row.baseSalary, fxRate, currency);
+            if (!reportCurrency) { reportCurrency = currency; reportFxRate = fxRate; }
+
+            // baseSalary may be missing for some countries (e.g. SE uses monthlyGrossSalaryRegularWork)
+            const baseSalary = fmtLocal(row.baseSalary ?? row.monthlyGrossSalaryRegularWork, fxRate, currency);
             const grossPay = fmtLocal(row.grossPay, fxRate, currency);
             const netPay = fmtLocal(row.netPay, fxRate, currency);
             const employerCost = fmtLocal(row.employerCost, fxRate, currency);
+
+            totalGrossUsd += numVal(row.grossPay) ?? 0;
+            totalNetUsd += numVal(row.netPay) ?? 0;
+            totalEmployerCostUsd += numVal(row.employerCost) ?? 0;
 
             output += `- ${name} (${jobTitle})\n`;
             output += `  Contract: ${contractId} | Dept: ${department}\n`;
@@ -151,6 +218,18 @@ export function registerPayrollTools(server: McpServer): void {
             }
             output += "\n";
           }
+
+          // Totals summary
+          const fmtTotal = (usd: number): string => {
+            if (reportFxRate === 1 || reportCurrency === "USD") {
+              return `$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
+            }
+            const local = usd * reportFxRate;
+            return `${local.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${reportCurrency}`;
+          };
+          output += `--- TOTALS (${validData.length} workers) ---\n`;
+          output += `  Total Gross: ${fmtTotal(totalGrossUsd)} | Total Net: ${fmtTotal(totalNetUsd)} | Total Employer Cost: ${fmtTotal(totalEmployerCostUsd)}\n`;
+
           return success(output);
         }
         return success(`Gross-to-net for report ${gp_report_id}:\n${JSON.stringify(data, null, 2)}`);
@@ -206,7 +285,10 @@ export function registerPayrollTools(server: McpServer): void {
         }
         let output = `Found ${payslips.length} payslip(s) for worker ${worker_id}:\n\n`;
         for (const p of payslips) {
-          output += `- Period: ${p.period ?? p.pay_period ?? "N/A"} | Gross: ${p.gross_pay ?? "N/A"} | Net: ${p.net_pay ?? "N/A"} | Status: ${p.status ?? "N/A"}\n`;
+          const from = p.from ? String(p.from).slice(0, 10) : null;
+          const to = p.to ? String(p.to).slice(0, 10) : null;
+          const period = from && to ? `${from} to ${to}` : (p.period ?? p.pay_period ?? "N/A");
+          output += `- ID: ${p.id ?? "N/A"} | Period: ${period} | Status: ${p.status ?? "N/A"}\n`;
         }
         if (res.page?.cursor) {
           output += `\n[More results — use cursor: "${res.page.cursor}"]`;
@@ -233,7 +315,12 @@ export function registerPayrollTools(server: McpServer): void {
         }
         let output = `Found ${banks.length} bank account(s) for worker ${worker_id}:\n\n`;
         for (const b of banks) {
-          output += `- ${b.bank_name ?? "Bank"} | Account: ***${String(b.account_number ?? b.iban ?? "").slice(-4)} | Currency: ${b.currency ?? "N/A"} | Primary: ${b.is_primary ?? "N/A"}\n`;
+          const acctNum = String(b.account_number ?? b.iban ?? "");
+          const masked = acctNum.length > 4 ? `***${acctNum.slice(-4)}` : acctNum || "N/A";
+          output += `- ${b.bank_name ?? "Bank"} | Account: ${masked} | Currency: ${b.currency_code ?? b.currency ?? "N/A"} | Status: ${b.status ?? "N/A"}`;
+          if (b.custom_name) output += ` | Name: ${b.custom_name}`;
+          if (b.payment_type) output += ` | Type: ${b.payment_type}`;
+          output += "\n";
         }
         return success(output);
       } catch (e) {

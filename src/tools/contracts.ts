@@ -13,7 +13,7 @@ export function registerContractTools(server: McpServer): void {
         .optional()
         .describe("Filter by contract type"),
       status: z
-        .enum(["in_progress", "new", "processing", "waiting_for_input", "under_review", "cancelled"])
+        .enum(["in_progress", "new", "under_review", "cancelled", "onboarded", "completed"])
         .optional()
         .describe("Filter by contract status"),
       limit: z

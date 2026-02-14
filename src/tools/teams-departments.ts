@@ -6,7 +6,7 @@ import { success, error } from "../types.js";
 export function registerTeamsDepartmentsTools(server: McpServer): void {
   server.tool(
     "deel_list_teams",
-    "List all teams in the organization.",
+    "List all teams in the organization. Note: the Deel API only returns team name and ID — member lists are not available through this endpoint. Use deel_list_people to see team/department assignments per person.",
     {
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
       cursor: z.string().optional().describe("Cursor for pagination"),

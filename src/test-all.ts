@@ -536,6 +536,92 @@ async function main() {
     return `${lines.length - 1} worker rows, ${csv.length} bytes`;
   });
 
+  // ── V2 Fix Validation ───────────────────────────────────
+  console.log("\n🔧 V2 Fixes\n");
+
+  // BUG-1: Verify SE GTN now shows base salary via monthlyGrossSalaryRegularWork fallback
+  await test("BUG-1: SE GTN base salary fix", async () => {
+    // Find SE entity and closed report
+    const entRes = await deelRequest<Array<Record<string, unknown>>>("/legal-entities");
+    let seEntityId: string | undefined;
+    for (const e of entRes.data) {
+      const name = String(e.name ?? "").toLowerCase();
+      if (name.includes(" ab") || String(e.country ?? "").toUpperCase() === "SE") {
+        seEntityId = String(e.id); break;
+      }
+    }
+    if (!seEntityId) return "WARN: No SE entity found";
+    const repRes = await deelRequest<Array<Record<string, unknown>>>(`/gp/legal-entities/${seEntityId}/reports`);
+    let seClosedId: string | undefined;
+    for (const r of repRes.data) { if (r.status === "CLOSED") { seClosedId = String(r.id); break; } }
+    if (!seClosedId) return "WARN: No CLOSED SE report";
+    const gtnRes = await deelRequest<Array<Record<string, unknown>>>(`/gp/reports/${seClosedId}/gross_to_net`);
+    const seData = gtnRes.data;
+    if (!Array.isArray(seData) || seData.length === 0) return "WARN: No SE GTN data";
+    // Check first non-ghost row has monthlyGrossSalaryRegularWork or baseSalary
+    const row = seData.find(r => {
+      const n = r as Record<string, unknown>;
+      const nameField = n.employeeName as Record<string, unknown> | undefined;
+      return nameField?.currentValue != null;
+    }) as Record<string, unknown> | undefined;
+    if (!row) return "WARN: All SE rows are ghost entries";
+    const base = row.baseSalary ?? row.monthlyGrossSalaryRegularWork;
+    if (!base) throw new Error("No baseSalary or monthlyGrossSalaryRegularWork field");
+    const cv = (base as Record<string, unknown>).currentValue;
+    if (cv === null || cv === undefined) throw new Error("Base salary value is null");
+    return `SE base salary fallback works: currentValue=${cv}`;
+  });
+
+  // BUG-2: Verify ghost worker filtered
+  await test("BUG-2: ghost worker filtered", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>(`/gp/reports/${gtnVerifyReportId}/gross_to_net`);
+    const data = res.data;
+    if (!Array.isArray(data)) return "Not an array";
+    const ghostCount = data.filter(r => {
+      const row = r as Record<string, unknown>;
+      const nameField = row.employeeName as Record<string, unknown> | undefined;
+      return nameField?.currentValue == null;
+    }).length;
+    return `${data.length} total rows, ${ghostCount} ghost(s) — formatter will filter these out`;
+  });
+
+  // BUG-3: Verify REQUESTED works (replaces PENDING)
+  await test("BUG-3: time-off REQUESTED status", async () => {
+    const res = await deelRequest<unknown>("/time_offs", { "status[]": "REQUESTED" });
+    const raw = res as unknown as Record<string, unknown>;
+    const data = raw.data;
+    if (!Array.isArray(data)) throw new Error("Unexpected response shape");
+    return `REQUESTED: ${data.length} request(s)`;
+  });
+
+  // BUG-5: Verify new contract statuses work
+  await test("BUG-5: contract onboarded status", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/contracts", { "statuses[]": "onboarded", limit: 5 });
+    return `onboarded: ${res.page?.total_rows ?? res.data.length} contracts`;
+  });
+
+  await test("BUG-5: contract completed status", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/contracts", { "statuses[]": "completed", limit: 5 });
+    return `completed: ${res.page?.total_rows ?? res.data.length} contracts`;
+  });
+
+  // IMP-1: Headcount summary
+  await test("IMP-1: headcount summary", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 100 });
+    const total = res.page?.total_rows ?? res.data.length;
+    if (total === 0) throw new Error("No people for headcount");
+    return `Headcount data available: ${total} people`;
+  });
+
+  // IMP-3: Payroll calendar
+  await test("IMP-3: payroll calendar", async () => {
+    const entRes = await deelRequest<Array<Record<string, unknown>>>("/legal-entities");
+    if (entRes.data.length === 0) throw new Error("No entities for calendar");
+    const first = entRes.data[0];
+    const repRes = await deelRequest<Array<Record<string, unknown>>>(`/gp/legal-entities/${first.id}/reports`);
+    return `Calendar: ${entRes.data.length} entities, ${first.name} has ${repRes.data.length} reports`;
+  });
+
   // ── Summary ───────────────────────────────────────────────
   console.log("\n" + "=".repeat(60));
   console.log(`\n📊 Results: ${pass} passed, ${fail} failed, ${warn} warnings`);

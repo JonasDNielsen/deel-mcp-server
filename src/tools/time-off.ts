@@ -9,9 +9,9 @@ export function registerTimeOffTools(server: McpServer): void {
     "List time off requests across the organization. Uses cursor-based pagination with 'next' parameter.",
     {
       status: z
-        .enum(["APPROVED", "PENDING", "USED", "DECLINED", "CANCELED"])
+        .enum(["APPROVED", "REQUESTED", "USED", "CANCELED", "REJECTED"])
         .optional()
-        .describe("Filter by request status (uppercase)"),
+        .describe("Filter by request status (REQUESTED = pending approval)"),
       next: z.string().optional().describe("Pagination cursor from previous response"),
     },
     async ({ status, next }) => {

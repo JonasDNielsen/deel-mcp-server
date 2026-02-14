@@ -6,14 +6,18 @@ import { success, error } from "../types.js";
 export function registerPeopleTools(server: McpServer): void {
   server.tool(
     "deel_list_people",
-    "List all people (workers/employees) in the organization. Returns name, email, country, hiring status, job title, department, and more for each person. Supports offset-based pagination.",
+    "List all people (workers/employees) in the organization. Returns name, email, country, hiring status, job title, department, and more for each person. Supports offset-based pagination and filtering by hiring status.",
     {
+      hiring_status: z.string().optional().describe("Filter by hiring status (e.g. 'active', 'inactive', 'onboarding')"),
+      hiring_type: z.string().optional().describe("Filter by hiring type (e.g. 'direct_employee', 'contractor')"),
       limit: z.number().min(1).max(100).optional().describe("Results per page (max 100)"),
       offset: z.number().min(0).optional().describe("Offset for pagination (default 0)"),
     },
-    async ({ limit, offset }) => {
+    async ({ hiring_status, hiring_type, limit, offset }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
+        if (hiring_status) params["hiring_status[]"] = hiring_status;
+        if (hiring_type) params["hiring_type[]"] = hiring_type;
         if (limit !== undefined) params.limit = limit;
         if (offset !== undefined) params.offset = offset;
 
@@ -116,7 +120,12 @@ export function registerPeopleTools(server: McpServer): void {
           const emp = employments[0];
           const payment = emp.payment as Record<string, unknown> | undefined;
           if (payment) {
-            lines.push(`Compensation: ${payment.rate ?? "N/A"} ${payment.currency ?? ""} per ${payment.scale ?? "N/A"}`);
+            const rate = payment.rate !== undefined && payment.rate !== null ? Number(payment.rate) : null;
+            const fmtRate = rate !== null && !isNaN(rate) ? rate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "N/A";
+            const scaleMap: Record<string, string> = { monthly: "month", hourly: "hour", weekly: "week", yearly: "year", annually: "year", biweekly: "2 weeks" };
+            const rawScale = String(payment.scale ?? "N/A").toLowerCase();
+            const scale = scaleMap[rawScale] ?? rawScale;
+            lines.push(`Compensation: ${fmtRate} ${payment.currency ?? ""} per ${scale}`);
           }
         }
 
@@ -130,6 +139,69 @@ export function registerPeopleTools(server: McpServer): void {
         }
 
         return success(lines.join("\n"));
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_headcount_summary",
+    "Get a headcount summary for the organization, broken down by country, department, hiring status, and hiring type. Pulls all people and aggregates the counts.",
+    {},
+    async () => {
+      try {
+        // Fetch all people (paginate if needed)
+        const allPeople: Array<Record<string, unknown>> = [];
+        let offset = 0;
+        const limit = 100;
+        while (true) {
+          const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit, offset });
+          allPeople.push(...res.data);
+          const total = res.page?.total_rows ?? res.data.length;
+          if (allPeople.length >= total || res.data.length < limit) break;
+          offset += limit;
+        }
+
+        if (allPeople.length === 0) return success("No people found in organization.");
+
+        const byCountry: Record<string, number> = {};
+        const byDept: Record<string, number> = {};
+        const byStatus: Record<string, number> = {};
+        const byType: Record<string, number> = {};
+
+        for (const p of allPeople) {
+          const country = String(p.country ?? "Unknown");
+          byCountry[country] = (byCountry[country] ?? 0) + 1;
+
+          const dept = (p.department as Record<string, unknown> | undefined)?.name ?? "None";
+          byDept[String(dept)] = (byDept[String(dept)] ?? 0) + 1;
+
+          const status = String(p.hiring_status ?? "Unknown");
+          byStatus[status] = (byStatus[status] ?? 0) + 1;
+
+          const type = String(p.hiring_type ?? "Unknown");
+          byType[type] = (byType[type] ?? 0) + 1;
+        }
+
+        const sortDesc = (obj: Record<string, number>) =>
+          Object.entries(obj).sort((a, b) => b[1] - a[1]);
+
+        let output = `Headcount Summary: ${allPeople.length} total\n\n`;
+
+        output += `By Status:\n`;
+        for (const [k, v] of sortDesc(byStatus)) output += `  ${k}: ${v}\n`;
+
+        output += `\nBy Country:\n`;
+        for (const [k, v] of sortDesc(byCountry)) output += `  ${k}: ${v}\n`;
+
+        output += `\nBy Department:\n`;
+        for (const [k, v] of sortDesc(byDept)) output += `  ${k}: ${v}\n`;
+
+        output += `\nBy Hiring Type:\n`;
+        for (const [k, v] of sortDesc(byType)) output += `  ${k}: ${v}\n`;
+
+        return success(output);
       } catch (e) {
         return error(e instanceof Error ? e.message : String(e));
       }
