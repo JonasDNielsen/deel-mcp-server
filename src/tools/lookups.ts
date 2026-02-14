@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { deelRequest } from "../client.js";
 import { success, error } from "../types.js";
 
@@ -49,18 +50,29 @@ export function registerLookupTools(server: McpServer): void {
 
   server.tool(
     "deel_lookup_job_titles",
-    "Get the list of available job titles on Deel.",
-    {},
-    async () => {
+    "Search or browse available job titles on Deel. Results are paginated (99 per page). Use 'search' to filter by name, or 'offset' to browse pages.",
+    {
+      search: z.string().optional().describe("Search query to filter job titles by name"),
+      offset: z.number().min(0).optional().describe("Pagination offset (default 0, increment by 99 for next page)"),
+    },
+    async ({ search, offset }) => {
       try {
-        const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/job-titles");
+        const params: Record<string, string | number | undefined> = {};
+        if (search) params.search = search;
+        if (offset) params.offset = offset;
+
+        const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/job-titles", params);
         const titles = res.data;
         if (!titles || titles.length === 0) {
-          return success("No job titles data available.");
+          return success(search ? `No job titles matching "${search}".` : "No job titles data available.");
         }
-        let output = `${titles.length} job titles available:\n\n`;
+        const currentOffset = offset ?? 0;
+        let output = `${titles.length} job titles (offset ${currentOffset}):\n\n`;
         for (const t of titles) {
           output += `- ${t.name ?? t.title ?? "N/A"} (ID: ${t.id ?? "N/A"})\n`;
+        }
+        if (titles.length >= 99) {
+          output += `\n[More results available — use offset: ${currentOffset + 99} for next page]`;
         }
         return success(output);
       } catch (e) {

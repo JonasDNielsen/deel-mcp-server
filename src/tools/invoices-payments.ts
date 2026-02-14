@@ -125,25 +125,51 @@ export function registerInvoicePaymentTools(server: McpServer): void {
 
   server.tool(
     "deel_get_payment_breakdown",
-    "Get the detailed breakdown of a specific payment, showing individual line items and amounts.",
-    { payment_id: z.string().describe("The unique payment ID") },
+    "Get the detailed breakdown of a specific payment, showing per-worker amounts with component breakdown (work, bonus, expenses, deductions, etc.). Use the payment ID from deel_list_payments (the hash ID, not the REC- label).",
+    { payment_id: z.string().describe("The unique payment ID (hash format from list_payments, e.g. '8gpu7JRY5bq8r4b83FmBB')") },
     async ({ payment_id }) => {
       try {
-        const res = await deelRequest<Record<string, unknown> | Array<Record<string, unknown>>>(
+        const res = await deelRequest<Array<Record<string, unknown>>>(
           `/payments/${payment_id}/breakdown`
         );
-        const data = res.data;
-        if (Array.isArray(data)) {
-          if (data.length === 0) {
-            return success(`No breakdown items found for payment ${payment_id}.`);
-          }
-          let output = `Payment ${payment_id} breakdown:\n\n`;
-          for (const item of data) {
-            output += `- ${item.description ?? item.type ?? "Line item"} | Amount: ${item.amount ?? "N/A"} ${item.currency ?? ""}\n`;
-          }
-          return success(output);
+        const items = res.data;
+        if (!items || !Array.isArray(items) || items.length === 0) {
+          return success(`No breakdown items found for payment ${payment_id}.`);
         }
-        return success(`Payment ${payment_id} breakdown:\n${JSON.stringify(data, null, 2)}`);
+
+        let output = `Payment ${payment_id} breakdown (${items.length} item(s)):\n\n`;
+        for (const item of items) {
+          const name = item.contractor_employee_name ?? "Unknown";
+          const email = item.contractor_email ?? "";
+          const total = item.total ?? "N/A";
+          const cur = item.currency ?? "";
+          const country = item.contract_country ?? "";
+          const paidAt = item.payment_date ? String(item.payment_date).slice(0, 10) : "";
+
+          output += `- ${name}${email ? ` (${email})` : ""} | Total: ${total} ${cur}\n`;
+
+          // Show non-zero component amounts
+          const components: string[] = [];
+          const componentKeys = ["work", "bonus", "expenses", "commissions", "deductions", "overtime", "pro_rata", "others", "processing_fee", "adjustment"];
+          for (const key of componentKeys) {
+            const val = item[key];
+            if (val && val !== "0.00" && val !== "0") {
+              components.push(`${key}: ${val}`);
+            }
+          }
+          if (components.length > 0) {
+            output += `  Components: ${components.join(", ")}\n`;
+          }
+          if (country || paidAt) {
+            const details: string[] = [];
+            if (country) details.push(`Country: ${country}`);
+            if (paidAt) details.push(`Paid: ${paidAt}`);
+            if (item.contract_type) details.push(`Type: ${item.contract_type}`);
+            output += `  ${details.join(" | ")}\n`;
+          }
+          output += "\n";
+        }
+        return success(output);
       } catch (e) {
         return error(e instanceof Error ? e.message : String(e));
       }
