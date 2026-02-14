@@ -1,13 +1,17 @@
 {
-  "name": "deel-mcp-server",
+  "name": "@accrease/deel-mcp-server",
   "version": "1.0.0",
   "description": "MCP server for reading Deel HR/payroll data via Claude",
   "type": "module",
   "bin": {
     "deel-mcp-server": "./build/index.js"
   },
+  "files": [
+    "build"
+  ],
   "scripts": {
     "build": "tsc && chmod 755 build/index.js",
+    "prepublishOnly": "npm run build",
     "start": "node build/index.js"
   },
   "dependencies": {
@@ -18,5 +22,10 @@
     "@types/node": "^20.0.0",
     "typescript": "^5.4.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JonasDNielsen/deel-mcp-server.git"
+  },
+  "keywords": ["mcp", "deel", "hr", "payroll", "claude"],
   "license": "MIT"
 }

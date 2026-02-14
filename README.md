@@ -19,27 +19,63 @@ Query your Deel organization data using natural language through Claude:
 
 **25 read-only tools** — no write operations, safe for querying.
 
-## Setup
+## Quick Install (Team Members)
+
+### Prerequisites
+
+- Node.js 18+ installed
+- A Deel API token (ask your admin)
+
+### Install from GitHub
+
+```bash
+npm install -g github:JonasDNielsen/deel-mcp-server
+```
+
+### Configure Claude Desktop
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "deel": {
+      "command": "deel-mcp-server",
+      "env": {
+        "DEEL_API_TOKEN": "your_token_here"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop. Done!
+
+### Configure Claude Code
+
+```bash
+claude mcp add deel -e DEEL_API_TOKEN=your_token_here -- deel-mcp-server
+```
+
+## Setup from Source
 
 ### 1. Get a Deel API Token
 
 1. Log into [Deel](https://app.letsdeel.com/)
 2. Go to **More → Developer → Access Tokens**
-3. Generate an **Organization Token** with read scopes for the resources you need (e.g. `contracts:read`, `people:read`)
+3. Generate an **Organization Token** with read scopes (e.g. `contracts:read`, `people:read`)
 4. Copy the token immediately — it won't be shown again
 
-### 2. Install & Build
+### 2. Clone & Build
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/deel-mcp-server.git
+git clone https://github.com/JonasDNielsen/deel-mcp-server.git
 cd deel-mcp-server
 npm install
 npm run build
 ```
 
-### 3. Configure with Claude
-
-**Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+### 3. Configure Claude Desktop (from source)
 
 ```json
 {
@@ -55,24 +91,46 @@ npm run build
 }
 ```
 
-**Claude Code** — add via CLI:
+### 4. Configure Claude Code (from source)
 
 ```bash
-claude mcp add deel -- node /absolute/path/to/deel-mcp-server/build/index.js
+claude mcp add deel -e DEEL_API_TOKEN=your_token_here -- node /absolute/path/to/deel-mcp-server/build/index.js
 ```
 
-Set the environment variable before running:
+## Publishing to npm (Admins)
+
+To publish so team members can install with `npm install -g`:
 
 ```bash
-export DEEL_API_TOKEN=your_token_here
+# First time: login to npm
+npm login
+
+# Publish (builds automatically via prepublishOnly)
+npm publish --access public
 ```
 
-### 4. Sandbox Testing (Optional)
-
-To test against Deel's sandbox with sample data, set:
+Team members can then install with:
 
 ```bash
-export DEEL_API_BASE_URL=https://api-sandbox.letsdeel.com/rest/v2
+npm install -g @accrease/deel-mcp-server
+```
+
+## Sandbox Testing
+
+To test against Deel's sandbox with sample data:
+
+```json
+{
+  "mcpServers": {
+    "deel": {
+      "command": "deel-mcp-server",
+      "env": {
+        "DEEL_API_TOKEN": "your_sandbox_token",
+        "DEEL_API_BASE_URL": "https://api-sandbox.letsdeel.com/rest/v2"
+      }
+    }
+  }
+}
 ```
 
 ## Example Queries
