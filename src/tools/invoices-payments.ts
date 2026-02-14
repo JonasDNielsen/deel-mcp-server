@@ -105,9 +105,10 @@ export function registerInvoicePaymentTools(server: McpServer): void {
           const method = p.payment_method as Record<string, unknown> | undefined;
           const workers = (p.workers ?? []) as Array<Record<string, unknown>>;
           const workerNames = workers.map(w => w.name ?? "Unknown").join(", ");
-          output += `- ${p.label ?? `Payment ${p.id}`} | Total: ${p.total ?? "N/A"} ${p.payment_currency ?? ""}\n`;
+          output += `- ${p.label ?? "Payment"} (ID: ${p.id}) | Total: ${p.total ?? "N/A"} ${p.payment_currency ?? ""}\n`;
           output += `  Status: ${p.status ?? "N/A"} | Method: ${method?.type ?? "N/A"} | Paid: ${p.paid_at ?? "N/A"}\n`;
           if (workerNames) output += `  Workers: ${workerNames}\n`;
+          output += `  [Use ID "${p.id}" with deel_get_payment_breakdown for details]\n`;
           output += "\n";
         }
         const hasMore = wrapper.has_more;

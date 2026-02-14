@@ -11,18 +11,11 @@ export function registerPayrollTools(server: McpServer): void {
       legal_entity_id: z
         .string()
         .describe("Legal entity ID (use deel_list_legal_entities to find)"),
-      limit: z.number().min(1).max(99).optional().describe("Results per page"),
-      cursor: z.string().optional().describe("Cursor for pagination"),
     },
-    async ({ legal_entity_id, limit, cursor }) => {
+    async ({ legal_entity_id }) => {
       try {
-        const params: Record<string, string | number | undefined> = {};
-        if (limit) params.limit = limit;
-        if (cursor) params.cursor = cursor;
-
         const res = await deelRequest<Array<Record<string, unknown>>>(
-          `/gp/legal-entities/${legal_entity_id}/reports`,
-          params
+          `/gp/legal-entities/${legal_entity_id}/reports`
         );
         const reports = res.data;
         if (!reports || reports.length === 0) {
@@ -37,9 +30,6 @@ export function registerPayrollTools(server: McpServer): void {
           output += `- Report ID: ${r.id} | Period: ${period} | Status: ${r.status ?? "N/A"}`;
           if (lockDate) output += ` | Lock date: ${lockDate}`;
           output += "\n";
-        }
-        if (res.page?.cursor) {
-          output += `\n[More results — use cursor: "${res.page.cursor}"]`;
         }
         return success(output);
       } catch (e) {

@@ -9,9 +9,9 @@ export function registerContractTools(server: McpServer): void {
     "List all contracts in the organization with optional filtering. Returns contract type, status, worker info, and compensation details.",
     {
       contract_type: z
-        .enum(["ongoing", "milestone", "pay_as_you_go", "eor", "gp"])
+        .enum(["ongoing", "milestone", "pay_as_you_go", "committal", "global_payroll"])
         .optional()
-        .describe("Filter by contract type"),
+        .describe("Filter by contract type (global_payroll = GP, committal = EOR)"),
       status: z
         .enum(["in_progress", "new", "processing", "waiting_for_input", "under_review", "cancelled"])
         .optional()
@@ -30,7 +30,7 @@ export function registerContractTools(server: McpServer): void {
     async ({ contract_type, status, limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
-        if (contract_type) params.contract_type = contract_type;
+        if (contract_type) params["types[]"] = contract_type;
         if (status) params["statuses[]"] = status;
         if (limit) params.limit = limit;
         if (cursor) params.cursor = cursor;

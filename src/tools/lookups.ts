@@ -97,14 +97,14 @@ export function registerLookupTools(server: McpServer): void {
     {},
     async () => {
       try {
-        const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/time-off-types");
+        const res = await deelRequest<Array<string>>("/lookups/time-off-types");
         const types = res.data;
         if (!types || types.length === 0) {
           return success("No time off type data available.");
         }
         let output = `${types.length} time off types:\n\n`;
         for (const t of types) {
-          output += `- ${t.name ?? t.label ?? "N/A"} (ID: ${t.id ?? "N/A"})\n`;
+          output += `- ${typeof t === "string" ? t : (t as Record<string, unknown>).name ?? "N/A"}\n`;
         }
         return success(output);
       } catch (e) {
