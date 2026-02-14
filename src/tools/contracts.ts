@@ -22,18 +22,18 @@ export function registerContractTools(server: McpServer): void {
         .max(99)
         .optional()
         .describe("Results per page (max 99)"),
-      after_cursor: z
+      cursor: z
         .string()
         .optional()
-        .describe("Cursor for pagination"),
+        .describe("Cursor for pagination (from previous response)"),
     },
-    async ({ contract_type, status, limit, after_cursor }) => {
+    async ({ contract_type, status, limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
         if (contract_type) params.contract_type = contract_type;
         if (status) params["statuses[]"] = status;
         if (limit) params.limit = limit;
-        if (after_cursor) params.after_cursor = after_cursor;
+        if (cursor) params.cursor = cursor;
 
         const res = await deelRequest<Array<Record<string, unknown>>>("/contracts", params);
         const contracts = res.data;
@@ -43,17 +43,22 @@ export function registerContractTools(server: McpServer): void {
 
         let output = `Found ${contracts.length} contract(s):\n\n`;
         for (const c of contracts) {
-          const worker = c.worker as Record<string, unknown> | undefined;
-          const compensation = c.compensation as Record<string, unknown> | undefined;
+          const worker = c.worker as Record<string, unknown> | null;
+          const invitations = c.invitations as Record<string, unknown> | undefined;
           output += `- ${c.title ?? "Untitled"}\n`;
           output += `  ID: ${c.id} | Type: ${c.type ?? "N/A"} | Status: ${c.status ?? "N/A"}\n`;
-          if (worker) output += `  Worker: ${worker.name ?? worker.full_name ?? "N/A"}\n`;
-          if (compensation) output += `  Compensation: ${compensation.amount ?? "N/A"} ${compensation.currency ?? ""} (${compensation.cycle ?? "N/A"})\n`;
+          if (worker) {
+            output += `  Worker: ${worker.full_name ?? worker.name ?? "N/A"} (${worker.email ?? "N/A"})\n`;
+          } else if (invitations?.worker_email) {
+            output += `  Worker email: ${invitations.worker_email}\n`;
+          }
+          if (c.created_at) output += `  Created: ${c.created_at}\n`;
+          if (c.termination_date) output += `  Termination: ${c.termination_date}\n`;
           output += "\n";
         }
 
-        if (res.page?.after_cursor) {
-          output += `[More results available — use after_cursor: "${res.page.after_cursor}"]`;
+        if (res.page?.cursor) {
+          output += `[More results available — use cursor: "${res.page.cursor}" | Total: ${res.page.total_rows ?? "N/A"}]`;
         }
         return success(output);
       } catch (e) {
@@ -92,13 +97,13 @@ export function registerContractTools(server: McpServer): void {
     {
       contract_id: z.string().describe("The unique Deel contract ID"),
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
-      after_cursor: z.string().optional().describe("Cursor for pagination"),
+      cursor: z.string().optional().describe("Cursor for pagination"),
     },
-    async ({ contract_id, limit, after_cursor }) => {
+    async ({ contract_id, limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
         if (limit) params.limit = limit;
-        if (after_cursor) params.after_cursor = after_cursor;
+        if (cursor) params.cursor = cursor;
 
         const res = await deelRequest<Array<Record<string, unknown>>>(
           `/contracts/${contract_id}/timesheets`,
@@ -112,8 +117,8 @@ export function registerContractTools(server: McpServer): void {
         for (const t of timesheets) {
           output += `- ${t.description ?? "Timesheet"} | Hours: ${t.quantity ?? t.hours ?? "N/A"} | Status: ${t.status ?? "N/A"} | Date: ${t.date_submitted ?? t.created_at ?? "N/A"}\n`;
         }
-        if (res.page?.after_cursor) {
-          output += `\n[More results — use after_cursor: "${res.page.after_cursor}"]`;
+        if (res.page?.cursor) {
+          output += `\n[More results — use cursor: "${res.page.cursor}"]`;
         }
         return success(output);
       } catch (e) {

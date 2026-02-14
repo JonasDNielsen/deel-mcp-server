@@ -35,13 +35,21 @@ const rateLimiter = new RateLimiter();
 export interface DeelPaginatedResponse<T> {
   data: T;
   page?: {
-    after_cursor?: string;
-    items_per_page?: number;
-    total_items?: number;
+    cursor?: string;
+    total_rows?: number;
     total?: number;
     offset?: number;
     limit?: number;
   };
+}
+
+// Raw JSON response — used when the shape doesn't follow the standard pattern
+export async function deelRequestRaw(
+  path: string,
+  params?: Record<string, string | number | undefined>
+): Promise<unknown> {
+  const res = await deelRequest<unknown>(path, params);
+  return res;
 }
 
 export async function deelRequest<T>(

@@ -12,13 +12,13 @@ export function registerPayrollTools(server: McpServer): void {
         .string()
         .describe("Legal entity ID (use deel_list_legal_entities to find)"),
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
-      after_cursor: z.string().optional().describe("Cursor for pagination"),
+      cursor: z.string().optional().describe("Cursor for pagination"),
     },
-    async ({ legal_entity_id, limit, after_cursor }) => {
+    async ({ legal_entity_id, limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
         if (limit) params.limit = limit;
-        if (after_cursor) params.after_cursor = after_cursor;
+        if (cursor) params.cursor = cursor;
 
         const res = await deelRequest<Array<Record<string, unknown>>>(
           `/gp/legal-entities/${legal_entity_id}/reports`,
@@ -32,8 +32,8 @@ export function registerPayrollTools(server: McpServer): void {
         for (const r of reports) {
           output += `- Report ID: ${r.id} | Period: ${r.period ?? r.pay_period ?? "N/A"} | Status: ${r.status ?? "N/A"} | Type: ${r.type ?? "N/A"}\n`;
         }
-        if (res.page?.after_cursor) {
-          output += `\n[More results — use after_cursor: "${res.page.after_cursor}"]`;
+        if (res.page?.cursor) {
+          output += `\n[More results — use cursor: "${res.page.cursor}"]`;
         }
         return success(output);
       } catch (e) {
@@ -76,13 +76,13 @@ export function registerPayrollTools(server: McpServer): void {
     {
       worker_id: z.string().describe("The unique Deel worker ID"),
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
-      after_cursor: z.string().optional().describe("Cursor for pagination"),
+      cursor: z.string().optional().describe("Cursor for pagination"),
     },
-    async ({ worker_id, limit, after_cursor }) => {
+    async ({ worker_id, limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
         if (limit) params.limit = limit;
-        if (after_cursor) params.after_cursor = after_cursor;
+        if (cursor) params.cursor = cursor;
 
         const res = await deelRequest<Array<Record<string, unknown>>>(
           `/gp/workers/${worker_id}/payslips`,
@@ -96,8 +96,8 @@ export function registerPayrollTools(server: McpServer): void {
         for (const p of payslips) {
           output += `- Period: ${p.period ?? p.pay_period ?? "N/A"} | Gross: ${p.gross_pay ?? "N/A"} | Net: ${p.net_pay ?? "N/A"} | Status: ${p.status ?? "N/A"}\n`;
         }
-        if (res.page?.after_cursor) {
-          output += `\n[More results — use after_cursor: "${res.page.after_cursor}"]`;
+        if (res.page?.cursor) {
+          output += `\n[More results — use cursor: "${res.page.cursor}"]`;
         }
         return success(output);
       } catch (e) {

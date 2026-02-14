@@ -9,13 +9,13 @@ export function registerTeamsDepartmentsTools(server: McpServer): void {
     "List all teams in the organization.",
     {
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
-      after_cursor: z.string().optional().describe("Cursor for pagination"),
+      cursor: z.string().optional().describe("Cursor for pagination"),
     },
-    async ({ limit, after_cursor }) => {
+    async ({ limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
         if (limit) params.limit = limit;
-        if (after_cursor) params.after_cursor = after_cursor;
+        if (cursor) params.cursor = cursor;
 
         const res = await deelRequest<Array<Record<string, unknown>>>("/teams", params);
         const teams = res.data;
@@ -26,8 +26,8 @@ export function registerTeamsDepartmentsTools(server: McpServer): void {
         for (const t of teams) {
           output += `- ${t.name ?? "Unnamed"} (ID: ${t.id}) | Members: ${t.member_count ?? t.members_count ?? "N/A"}\n`;
         }
-        if (res.page?.after_cursor) {
-          output += `\n[More results — use after_cursor: "${res.page.after_cursor}"]`;
+        if (res.page?.cursor) {
+          output += `\n[More results — use cursor: "${res.page.cursor}"]`;
         }
         return success(output);
       } catch (e) {
@@ -41,13 +41,13 @@ export function registerTeamsDepartmentsTools(server: McpServer): void {
     "List all departments in the organization.",
     {
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
-      after_cursor: z.string().optional().describe("Cursor for pagination"),
+      cursor: z.string().optional().describe("Cursor for pagination"),
     },
-    async ({ limit, after_cursor }) => {
+    async ({ limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
         if (limit) params.limit = limit;
-        if (after_cursor) params.after_cursor = after_cursor;
+        if (cursor) params.cursor = cursor;
 
         const res = await deelRequest<Array<Record<string, unknown>>>("/departments", params);
         const departments = res.data;
@@ -58,8 +58,8 @@ export function registerTeamsDepartmentsTools(server: McpServer): void {
         for (const d of departments) {
           output += `- ${d.name ?? "Unnamed"} (ID: ${d.id})\n`;
         }
-        if (res.page?.after_cursor) {
-          output += `\n[More results — use after_cursor: "${res.page.after_cursor}"]`;
+        if (res.page?.cursor) {
+          output += `\n[More results — use cursor: "${res.page.cursor}"]`;
         }
         return success(output);
       } catch (e) {
@@ -73,13 +73,13 @@ export function registerTeamsDepartmentsTools(server: McpServer): void {
     "List all managers in the organization with their reporting structure.",
     {
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
-      after_cursor: z.string().optional().describe("Cursor for pagination"),
+      cursor: z.string().optional().describe("Cursor for pagination"),
     },
-    async ({ limit, after_cursor }) => {
+    async ({ limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
         if (limit) params.limit = limit;
-        if (after_cursor) params.after_cursor = after_cursor;
+        if (cursor) params.cursor = cursor;
 
         const res = await deelRequest<Array<Record<string, unknown>>>("/managers", params);
         const managers = res.data;
@@ -88,10 +88,11 @@ export function registerTeamsDepartmentsTools(server: McpServer): void {
         }
         let output = `Found ${managers.length} manager(s):\n\n`;
         for (const m of managers) {
-          output += `- ${m.name ?? m.full_name ?? "Unnamed"} (ID: ${m.id}) | Email: ${m.email ?? "N/A"} | Direct Reports: ${m.direct_reports_count ?? "N/A"}\n`;
+          const name = m.first_name && m.last_name ? `${m.first_name} ${m.last_name}` : (m.name ?? m.full_name ?? "Unnamed");
+          output += `- ${name} (ID: ${m.id}) | Email: ${m.email ?? "N/A"}\n`;
         }
-        if (res.page?.after_cursor) {
-          output += `\n[More results — use after_cursor: "${res.page.after_cursor}"]`;
+        if (res.page?.cursor) {
+          output += `\n[More results — use cursor: "${res.page.cursor}"]`;
         }
         return success(output);
       } catch (e) {

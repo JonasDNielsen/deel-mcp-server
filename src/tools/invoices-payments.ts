@@ -28,11 +28,8 @@ export function registerInvoicePaymentTools(server: McpServer): void {
         }
         let output = `Found ${invoices.length} invoice(s):\n\n`;
         for (const inv of invoices) {
-          output += `- Invoice #${inv.number ?? inv.id} | Amount: ${inv.amount ?? inv.total ?? "N/A"} ${inv.currency ?? ""}\n`;
-          output += `  Worker: ${inv.worker_name ?? inv.contractor_name ?? "N/A"} | Date: ${inv.issued_date ?? inv.date ?? "N/A"} | Status: ${inv.status ?? "N/A"}\n\n`;
-        }
-        if (res.page?.total) {
-          output += `Total invoices: ${res.page.total}`;
+          output += `- ${inv.label ?? `Invoice #${inv.id}`} | Amount: ${inv.amount ?? "N/A"} ${inv.currency ?? ""} (Total: ${inv.total ?? "N/A"})\n`;
+          output += `  Status: ${inv.status ?? "N/A"} | Created: ${inv.created_at ?? "N/A"} | Paid: ${inv.paid_at ?? "N/A"}\n\n`;
         }
         return success(output);
       } catch (e) {
@@ -78,26 +75,37 @@ export function registerInvoicePaymentTools(server: McpServer): void {
       date_to: z.string().optional().describe("End date (YYYY-MM-DD)"),
       currencies: z.string().optional().describe("Currency code filter (e.g. EUR, USD)"),
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
-      offset: z.number().min(0).optional().describe("Offset for pagination"),
+      cursor: z.string().optional().describe("Cursor for pagination"),
     },
-    async ({ date_from, date_to, currencies, limit, offset }) => {
+    async ({ date_from, date_to, currencies, limit, cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
         if (date_from) params.date_from = date_from;
         if (date_to) params.date_to = date_to;
         if (currencies) params.currencies = currencies;
         if (limit) params.limit = limit;
-        if (offset) params.offset = offset;
+        if (cursor) params.cursor = cursor;
 
-        const res = await deelRequest<Array<Record<string, unknown>>>("/payments", params);
-        const payments = res.data;
-        if (!payments || payments.length === 0) {
+        const res = await deelRequest<Record<string, unknown>>("/payments", params);
+        const wrapper = res.data;
+        const rows = (wrapper.rows ?? []) as Array<Record<string, unknown>>;
+        if (rows.length === 0) {
           return success("No payments found matching the criteria.");
         }
-        let output = `Found ${payments.length} payment(s):\n\n`;
-        for (const p of payments) {
-          output += `- Payment ID: ${p.id} | Amount: ${p.amount ?? p.total ?? "N/A"} ${p.currency ?? ""}\n`;
-          output += `  Date: ${p.date ?? p.paid_at ?? "N/A"} | Status: ${p.status ?? "N/A"} | Method: ${p.payment_method ?? "N/A"}\n\n`;
+        let output = `Found ${rows.length} payment(s):\n\n`;
+        for (const p of rows) {
+          const method = p.payment_method as Record<string, unknown> | undefined;
+          const workers = (p.workers ?? []) as Array<Record<string, unknown>>;
+          const workerNames = workers.map(w => w.name ?? "Unknown").join(", ");
+          output += `- ${p.label ?? `Payment ${p.id}`} | Total: ${p.total ?? "N/A"} ${p.payment_currency ?? ""}\n`;
+          output += `  Status: ${p.status ?? "N/A"} | Method: ${method?.type ?? "N/A"} | Paid: ${p.paid_at ?? "N/A"}\n`;
+          if (workerNames) output += `  Workers: ${workerNames}\n`;
+          output += "\n";
+        }
+        const hasMore = wrapper.has_more;
+        const nextCursor = wrapper.next_cursor;
+        if (hasMore && nextCursor) {
+          output += `[More results available — use cursor: "${nextCursor}"]`;
         }
         return success(output);
       } catch (e) {

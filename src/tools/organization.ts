@@ -9,14 +9,15 @@ export function registerOrganizationTools(server: McpServer): void {
     {},
     async () => {
       try {
-        const res = await deelRequest<Record<string, unknown>>("/organizations");
-        const org = res.data;
+        const res = await deelRequest<Array<Record<string, unknown>>>("/organizations");
+        const orgs = res.data;
+        if (!orgs || orgs.length === 0) {
+          return success("No organization data found.");
+        }
+        const org = orgs[0]!;
         const lines = [
           `Organization: ${org.name ?? "N/A"}`,
           `ID: ${org.id ?? "N/A"}`,
-          `Type: ${org.type ?? "N/A"}`,
-          `Country: ${org.country ?? "N/A"}`,
-          `Status: ${org.status ?? "N/A"}`,
         ];
         return success(lines.join("\n"));
       } catch (e) {
@@ -38,7 +39,7 @@ export function registerOrganizationTools(server: McpServer): void {
         }
         let output = `Found ${entities.length} legal entity(ies):\n\n`;
         for (const e of entities) {
-          output += `- ${e.name ?? "Unnamed"} (ID: ${e.id}) | Country: ${e.country ?? "N/A"} | Status: ${e.status ?? "N/A"}\n`;
+          output += `- ${e.name ?? "Unnamed"} (ID: ${e.id}) | Country: ${e.country ?? "N/A"} | Type: ${e.entity_type ?? "N/A"}\n`;
         }
         return success(output);
       } catch (e) {
