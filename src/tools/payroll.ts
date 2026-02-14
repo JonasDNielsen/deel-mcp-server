@@ -30,7 +30,13 @@ export function registerPayrollTools(server: McpServer): void {
         }
         let output = `Found ${reports.length} payroll report(s):\n\n`;
         for (const r of reports) {
-          output += `- Report ID: ${r.id} | Period: ${r.period ?? r.pay_period ?? "N/A"} | Status: ${r.status ?? "N/A"} | Type: ${r.type ?? "N/A"}\n`;
+          const startDate = r.start_date ? String(r.start_date).slice(0, 10) : null;
+          const endDate = r.end_date ? String(r.end_date).slice(0, 10) : null;
+          const period = startDate && endDate ? `${startDate} to ${endDate}` : "N/A";
+          const lockDate = r.lock_date ? String(r.lock_date).slice(0, 10) : null;
+          output += `- Report ID: ${r.id} | Period: ${period} | Status: ${r.status ?? "N/A"}`;
+          if (lockDate) output += ` | Lock date: ${lockDate}`;
+          output += "\n";
         }
         if (res.page?.cursor) {
           output += `\n[More results — use cursor: "${res.page.cursor}"]`;
@@ -44,8 +50,8 @@ export function registerPayrollTools(server: McpServer): void {
 
   server.tool(
     "deel_get_gross_to_net",
-    "Get gross to net calculation breakdown for a payroll report, showing deductions, taxes, and net pay.",
-    { gp_report_id: z.string().describe("Global payroll report ID") },
+    "Get gross to net calculation breakdown for a payroll report, showing base salary, deductions, taxes, and net pay per worker. Only CLOSED reports have data; OPEN/LOCKED reports return empty.",
+    { gp_report_id: z.string().describe("Global payroll report ID (use deel_get_payroll_reports to find CLOSED reports)") },
     async ({ gp_report_id }) => {
       try {
         const res = await deelRequest<Record<string, unknown> | Array<Record<string, unknown>>>(
@@ -54,12 +60,58 @@ export function registerPayrollTools(server: McpServer): void {
         const data = res.data;
         if (Array.isArray(data)) {
           if (data.length === 0) {
-            return success(`No gross-to-net data found for report ${gp_report_id}.`);
+            return success(`No gross-to-net data found for report ${gp_report_id}. This report may be OPEN or LOCKED — only CLOSED reports contain payroll data.`);
           }
-          let output = `Gross-to-net breakdown for report ${gp_report_id}:\n\n`;
+          // Each field in a row is an object: { currentValue, formattedCurrentValue, label, type }
+          const val = (field: unknown): string => {
+            if (field && typeof field === "object" && "currentValue" in (field as Record<string, unknown>)) {
+              const cv = (field as Record<string, unknown>).currentValue;
+              return cv !== null && cv !== undefined ? String(cv) : "N/A";
+            }
+            return field !== null && field !== undefined ? String(field) : "N/A";
+          };
+          const fmtVal = (field: unknown): string => {
+            if (field && typeof field === "object" && "formattedCurrentValue" in (field as Record<string, unknown>)) {
+              const fv = (field as Record<string, unknown>).formattedCurrentValue;
+              return fv !== null && fv !== undefined ? String(fv) : "N/A";
+            }
+            return field !== null && field !== undefined ? String(field) : "N/A";
+          };
+
+          let output = `Gross-to-net breakdown for report ${gp_report_id} (${data.length} worker(s)):\n\n`;
           for (const item of data) {
-            output += `- ${item.employee_name ?? item.worker_name ?? "Worker"}\n`;
-            output += `  Gross: ${item.gross_pay ?? item.gross ?? "N/A"} | Deductions: ${item.total_deductions ?? item.deductions ?? "N/A"} | Net: ${item.net_pay ?? item.net ?? "N/A"}\n`;
+            const row = item as Record<string, unknown>;
+            const name = val(row.employeeName);
+            const jobTitle = val(row.jobTitle);
+            const department = val(row.employeeDepartment);
+            const currency = val(row.originalCurrency);
+            const baseSalary = fmtVal(row.baseSalary ?? row.monthlyGrossSalaryRegularWork);
+            const grossPay = fmtVal(row.grossPay);
+            const netPay = fmtVal(row.netPay);
+            const employerCost = fmtVal(row.employerCost);
+            const contractId = val(row.contractId);
+
+            output += `- ${name} (${jobTitle})\n`;
+            output += `  Contract: ${contractId} | Dept: ${department} | Currency: ${currency}\n`;
+            output += `  Base salary: ${baseSalary} | Gross: ${grossPay} | Net: ${netPay} | Employer cost: ${employerCost}\n`;
+
+            // Show deduction items (ee* fields)
+            const deductions: string[] = [];
+            for (const [key, field] of Object.entries(row)) {
+              if (key.startsWith("ee") || key === "taxPaid") {
+                const label = field && typeof field === "object" && "label" in (field as Record<string, unknown>)
+                  ? String((field as Record<string, unknown>).label)
+                  : key;
+                const amount = fmtVal(field);
+                if (amount !== "N/A" && amount !== "$0.00" && amount !== "0") {
+                  deductions.push(`${label}: ${amount}`);
+                }
+              }
+            }
+            if (deductions.length > 0) {
+              output += `  Deductions: ${deductions.join(", ")}\n`;
+            }
+            output += "\n";
           }
           return success(output);
         }

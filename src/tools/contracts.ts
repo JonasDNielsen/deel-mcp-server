@@ -48,7 +48,9 @@ export function registerContractTools(server: McpServer): void {
           output += `- ${c.title ?? "Untitled"}\n`;
           output += `  ID: ${c.id} | Type: ${c.type ?? "N/A"} | Status: ${c.status ?? "N/A"}\n`;
           if (worker) {
-            output += `  Worker: ${worker.full_name ?? worker.name ?? "N/A"} (${worker.email ?? "N/A"})\n`;
+            output += `  Worker: ${worker.full_name ?? worker.name ?? "N/A"} (${worker.email ?? "N/A"})`;
+            if (worker.id) output += ` [Worker ID: ${worker.id}]`;
+            output += "\n";
           } else if (invitations?.worker_email) {
             output += `  Worker email: ${invitations.worker_email}\n`;
           }
@@ -68,8 +70,64 @@ export function registerContractTools(server: McpServer): void {
   );
 
   server.tool(
+    "deel_get_contract",
+    "Get full details for a single contract, including compensation/salary, employment details, job title, and worker info. Use this to see salary data that is not included in the contract list.",
+    { contract_id: z.string().describe("The unique Deel contract ID (e.g. '3yjd75w')") },
+    async ({ contract_id }) => {
+      try {
+        const res = await deelRequest<Record<string, unknown>>(
+          `/contracts/${contract_id}`
+        );
+        const c = res.data;
+        let output = `Contract: ${c.title ?? "Untitled"}\n`;
+        output += `ID: ${c.id} | Type: ${c.type ?? "N/A"} | Status: ${c.status ?? "N/A"}\n`;
+
+        const worker = c.worker as Record<string, unknown> | null;
+        if (worker) {
+          output += `Worker: ${worker.full_name ?? "N/A"} (${worker.email ?? "N/A"}) [ID: ${worker.id ?? "N/A"}]\n`;
+          if (worker.country) output += `Country: ${worker.country}\n`;
+        }
+
+        const comp = c.compensation_details as Record<string, unknown> | undefined;
+        if (comp) {
+          output += `\nCompensation:\n`;
+          output += `  Amount: ${comp.amount ?? "N/A"} ${comp.currency_code ?? ""}\n`;
+          output += `  Scale: ${comp.scale ?? comp.frequency ?? "N/A"}\n`;
+          if (comp.first_payment_date) output += `  First payment: ${comp.first_payment_date}\n`;
+          if (comp.gross_annual_salary) output += `  Gross annual salary: ${comp.gross_annual_salary}\n`;
+        } else {
+          output += `\nCompensation: Not available for this contract type.\n`;
+        }
+
+        if (c.job_title) output += `Job title: ${c.job_title}\n`;
+        if (c.employment_type) output += `Employment type: ${c.employment_type}\n`;
+        if (c.start_date) output += `Start date: ${c.start_date}\n`;
+        if (c.termination_date) output += `Termination date: ${c.termination_date}\n`;
+
+        const employment = c.employment_details as Record<string, unknown> | undefined;
+        if (employment) {
+          output += `\nEmployment details:\n`;
+          if (employment.type) output += `  Type: ${employment.type}\n`;
+          if (employment.days_per_week) output += `  Days/week: ${employment.days_per_week}\n`;
+          if (employment.hours_per_day) output += `  Hours/day: ${employment.hours_per_day}\n`;
+        }
+
+        const client = c.client as Record<string, unknown> | undefined;
+        const legalEntity = client?.legal_entity as Record<string, unknown> | undefined;
+        if (legalEntity) {
+          output += `Legal entity: ${legalEntity.name ?? "N/A"} (${legalEntity.id ?? "N/A"})\n`;
+        }
+
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
     "deel_get_contract_adjustments",
-    "Get compensation adjustments for a specific contract, including salary changes and bonuses.",
+    "Get compensation adjustments for a specific contract, including salary changes and bonuses. Note: many contracts may have no adjustments if no salary changes have been made.",
     { contract_id: z.string().describe("The unique Deel contract ID") },
     async ({ contract_id }) => {
       try {
@@ -78,7 +136,7 @@ export function registerContractTools(server: McpServer): void {
         );
         const adjustments = res.data;
         if (!adjustments || adjustments.length === 0) {
-          return success(`No adjustments found for contract ${contract_id}.`);
+          return success(`No adjustments found for contract ${contract_id}. This is normal if no salary changes, bonuses, or compensation modifications have been recorded for this contract.`);
         }
         let output = `Found ${adjustments.length} adjustment(s) for contract ${contract_id}:\n\n`;
         for (const a of adjustments) {

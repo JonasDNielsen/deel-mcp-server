@@ -29,7 +29,15 @@ export function registerInvoicePaymentTools(server: McpServer): void {
         let output = `Found ${invoices.length} invoice(s):\n\n`;
         for (const inv of invoices) {
           output += `- ${inv.label ?? `Invoice #${inv.id}`} | Amount: ${inv.amount ?? "N/A"} ${inv.currency ?? ""} (Total: ${inv.total ?? "N/A"})\n`;
-          output += `  Status: ${inv.status ?? "N/A"} | Created: ${inv.created_at ?? "N/A"} | Paid: ${inv.paid_at ?? "N/A"}\n\n`;
+          output += `  Status: ${inv.status ?? "N/A"} | Created: ${inv.created_at ?? "N/A"} | Paid: ${inv.paid_at ?? "N/A"}\n`;
+          const details: string[] = [];
+          if (inv.contract_id) details.push(`Contract: ${inv.contract_id}`);
+          if (inv.recipient_legal_entity_id) details.push(`Legal entity: ${inv.recipient_legal_entity_id}`);
+          if (inv.deel_fee && inv.deel_fee !== "0.00") details.push(`Deel fee: ${inv.deel_fee}`);
+          if (inv.is_overdue) details.push("OVERDUE");
+          if (inv.due_date) details.push(`Due: ${inv.due_date}`);
+          if (details.length > 0) output += `  ${details.join(" | ")}\n`;
+          output += "\n";
         }
         return success(output);
       } catch (e) {

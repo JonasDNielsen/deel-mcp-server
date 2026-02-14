@@ -31,6 +31,7 @@
     { "name": "deel_get_person", "description": "Get worker/employee details by ID" },
     { "name": "deel_list_people_custom_fields", "description": "List custom fields for people" },
     { "name": "deel_list_contracts", "description": "List contracts with filters" },
+    { "name": "deel_get_contract", "description": "Get full contract details including compensation/salary" },
     { "name": "deel_get_contract_adjustments", "description": "Get contract adjustments" },
     { "name": "deel_get_contract_timesheets", "description": "Get contract timesheets" },
     { "name": "deel_get_payroll_reports", "description": "Get payroll reports by legal entity" },
