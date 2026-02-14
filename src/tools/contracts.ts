@@ -90,9 +90,10 @@ export function registerContractTools(server: McpServer): void {
 
         const comp = c.compensation_details as Record<string, unknown> | undefined;
         if (comp) {
-          output += `\nCompensation:\n`;
-          output += `  Amount: ${comp.amount ?? "N/A"} ${comp.currency_code ?? ""}\n`;
-          output += `  Scale: ${comp.scale ?? comp.frequency ?? "N/A"}\n`;
+          const amount = comp.amount ?? "N/A";
+          const currency = comp.currency_code ?? "";
+          const scale = comp.scale ?? comp.frequency ?? "N/A";
+          output += `\nCompensation: ${amount} ${currency} per ${scale}\n`;
           if (comp.first_payment_date) output += `  First payment: ${comp.first_payment_date}\n`;
           if (comp.gross_annual_salary) output += `  Gross annual salary: ${comp.gross_annual_salary}\n`;
         } else {
@@ -100,9 +101,14 @@ export function registerContractTools(server: McpServer): void {
         }
 
         if (c.job_title) output += `Job title: ${c.job_title}\n`;
+        if (c.seniority) output += `Seniority: ${c.seniority}\n`;
         if (c.employment_type) output += `Employment type: ${c.employment_type}\n`;
         if (c.start_date) output += `Start date: ${c.start_date}\n`;
         if (c.termination_date) output += `Termination date: ${c.termination_date}\n`;
+        if (c.scope_of_work) output += `Scope of work: ${c.scope_of_work}\n`;
+        if (c.special_clause) output += `Special clause: ${c.special_clause}\n`;
+        if (c.notice_period) output += `Notice period: ${c.notice_period}\n`;
+        if (c.is_archived) output += `Archived: yes\n`;
 
         const employment = c.employment_details as Record<string, unknown> | undefined;
         if (employment) {
@@ -112,10 +118,24 @@ export function registerContractTools(server: McpServer): void {
           if (employment.hours_per_day) output += `  Hours/day: ${employment.hours_per_day}\n`;
         }
 
+        const workSchedule = c.work_schedule as Record<string, unknown> | undefined;
+        if (workSchedule) {
+          output += `Work schedule: ${JSON.stringify(workSchedule)}\n`;
+        }
+
         const client = c.client as Record<string, unknown> | undefined;
         const legalEntity = client?.legal_entity as Record<string, unknown> | undefined;
         if (legalEntity) {
           output += `Legal entity: ${legalEntity.name ?? "N/A"} (${legalEntity.id ?? "N/A"})\n`;
+        }
+
+        // Custom fields
+        const customFields = c.custom_fields as Array<Record<string, unknown>> | undefined;
+        if (customFields && customFields.length > 0) {
+          output += `\nCustom Fields:\n`;
+          for (const cf of customFields) {
+            output += `  ${cf.label ?? cf.name ?? "Field"}: ${cf.value ?? "N/A"}\n`;
+          }
         }
 
         return success(output);
@@ -141,6 +161,174 @@ export function registerContractTools(server: McpServer): void {
         let output = `Found ${adjustments.length} adjustment(s) for contract ${contract_id}:\n\n`;
         for (const a of adjustments) {
           output += `- ${a.description ?? a.type ?? "Adjustment"} | Amount: ${a.amount ?? "N/A"} ${a.currency ?? ""} | Date: ${a.date ?? a.created_at ?? "N/A"}\n`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_contract_amendments",
+    "Get the amendment history for a contract, showing salary changes, contract modifications, and their status. Amendments track changes to terms like compensation.",
+    {
+      contract_id: z.string().describe("The unique Deel contract ID"),
+    },
+    async ({ contract_id }) => {
+      try {
+        const res = await deelRequest<unknown>(`/contracts/${contract_id}/amendments`);
+        const raw = res as unknown as Record<string, unknown>;
+        const amendments = raw.data as Array<Record<string, unknown>> | undefined;
+        if (!amendments || amendments.length === 0) {
+          return success(`No amendments found for contract ${contract_id}.`);
+        }
+        const totalCount = raw.total_count ?? amendments.length;
+        let output = `Found ${totalCount} amendment(s) for contract ${contract_id}:\n\n`;
+        for (const a of amendments) {
+          output += `- ${a.contract_name ?? "Amendment"} (ID: ${a.id})\n`;
+          output += `  Status: ${a.status ?? "N/A"} | Sign Status: ${a.sign_status ?? "N/A"}\n`;
+          output += `  Effective Date: ${a.effective_date ? String(a.effective_date).slice(0, 10) : "N/A"}\n`;
+          if (a.rate !== undefined) output += `  Rate: ${a.rate} ${a.currency_code ?? ""} (${a.scale ?? "N/A"})\n`;
+          output += `  Created: ${a.created_at ? String(a.created_at).slice(0, 10) : "N/A"}\n\n`;
+        }
+        if (raw.has_more) {
+          output += `[More amendments available — use cursor: "${raw.cursor}"]`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_list_contract_custom_fields",
+    "List organization-specific custom fields defined for contracts.",
+    {},
+    async () => {
+      try {
+        const res = await deelRequest<Array<Record<string, unknown>>>("/contracts/custom_fields");
+        const fields = res.data;
+        if (!fields || fields.length === 0) {
+          return success("No custom fields defined for contracts.");
+        }
+        let output = `Found ${fields.length} contract custom field(s):\n\n`;
+        for (const f of fields) {
+          output += `- ${f.label ?? f.name ?? "Unnamed"} (ID: ${f.id}) | Type: ${f.type ?? "N/A"} | Required: ${f.required ?? false}\n`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_list_contract_templates",
+    "List available contract templates in the organization.",
+    {},
+    async () => {
+      try {
+        const res = await deelRequest<Array<Record<string, unknown>>>("/contract-templates");
+        const templates = res.data;
+        if (!templates || templates.length === 0) {
+          return success("No contract templates found.");
+        }
+        let output = `Found ${templates.length} contract template(s):\n\n`;
+        for (const t of templates) {
+          output += `- ${t.title ?? t.name ?? "Untitled"} (ID: ${t.id})\n`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_contract_off_cycle_payments",
+    "Get off-cycle (ad-hoc) payments for a contract, such as bonuses or one-time payments outside the regular payroll cycle.",
+    {
+      contract_id: z.string().describe("The unique Deel contract ID"),
+    },
+    async ({ contract_id }) => {
+      try {
+        const res = await deelRequest<Array<Record<string, unknown>>>(
+          `/contracts/${contract_id}/off-cycle-payments`
+        );
+        const payments = res.data;
+        if (!payments || payments.length === 0) {
+          return success(`No off-cycle payments found for contract ${contract_id}.`);
+        }
+        let output = `Found ${payments.length} off-cycle payment(s) for contract ${contract_id}:\n\n`;
+        for (const p of payments) {
+          output += `- ${p.description ?? p.type ?? "Payment"} | Amount: ${p.amount ?? "N/A"} ${p.currency ?? ""} | Status: ${p.status ?? "N/A"} | Date: ${p.date ?? p.created_at ?? "N/A"}\n`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_contract_tasks",
+    "Get onboarding or compliance tasks for a contract, showing task status and requirements.",
+    {
+      contract_id: z.string().describe("The unique Deel contract ID"),
+    },
+    async ({ contract_id }) => {
+      try {
+        const res = await deelRequest<Array<Record<string, unknown>>>(
+          `/contracts/${contract_id}/tasks`
+        );
+        const tasks = res.data;
+        if (!tasks || tasks.length === 0) {
+          return success(`No tasks found for contract ${contract_id}.`);
+        }
+        let output = `Found ${tasks.length} task(s) for contract ${contract_id}:\n\n`;
+        for (const t of tasks) {
+          output += `- ${t.title ?? t.name ?? "Task"} | Status: ${t.status ?? "N/A"} | Type: ${t.type ?? "N/A"}\n`;
+          if (t.due_date) output += `  Due: ${t.due_date}\n`;
+          if (t.description) output += `  ${t.description}\n`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_contract_invoice_adjustments",
+    "Get invoice-level adjustments for a contract.",
+    {
+      contract_id: z.string().describe("The unique Deel contract ID"),
+      limit: z.number().min(1).max(99).optional().describe("Results per page"),
+      offset: z.number().min(0).optional().describe("Offset for pagination"),
+    },
+    async ({ contract_id, limit, offset }) => {
+      try {
+        const params: Record<string, string | number | undefined> = {};
+        if (limit) params.limit = limit;
+        if (offset !== undefined) params.offset = offset;
+
+        const res = await deelRequest<Array<Record<string, unknown>>>(
+          `/contracts/${contract_id}/invoice-adjustments`,
+          params
+        );
+        const adjustments = res.data;
+        if (!adjustments || adjustments.length === 0) {
+          return success(`No invoice adjustments found for contract ${contract_id}.`);
+        }
+        let output = `Found ${adjustments.length} invoice adjustment(s) for contract ${contract_id}:\n\n`;
+        for (const a of adjustments) {
+          output += `- ${a.description ?? a.type ?? "Adjustment"} | Amount: ${a.amount ?? "N/A"} ${a.currency ?? ""} | Date: ${a.date ?? a.created_at ?? "N/A"}\n`;
+        }
+        if (res.page?.total_rows && adjustments.length < res.page.total_rows) {
+          const currentOffset = offset ?? 0;
+          output += `\n[More results — use offset: ${currentOffset + adjustments.length} | Total: ${res.page.total_rows}]`;
         }
         return success(output);
       } catch (e) {

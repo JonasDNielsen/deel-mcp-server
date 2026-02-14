@@ -52,60 +52,130 @@ export function registerPayrollTools(server: McpServer): void {
           if (data.length === 0) {
             return success(`No gross-to-net data found for report ${gp_report_id}. This report may be OPEN or LOCKED — only CLOSED reports contain payroll data.`);
           }
-          // Each field in a row is an object: { currentValue, formattedCurrentValue, label, type }
-          const val = (field: unknown): string => {
+
+          // Each field is { currentValue (USD), formattedCurrentValue (USD), label, type }.
+          // The API returns all amounts consolidated in USD. To get local-currency
+          // amounts we multiply currentValue × fxRate (local units per 1 USD).
+          const textVal = (field: unknown): string => {
             if (field && typeof field === "object" && "currentValue" in (field as Record<string, unknown>)) {
               const cv = (field as Record<string, unknown>).currentValue;
               return cv !== null && cv !== undefined ? String(cv) : "N/A";
             }
             return field !== null && field !== undefined ? String(field) : "N/A";
           };
-          const fmtVal = (field: unknown): string => {
-            if (field && typeof field === "object" && "formattedCurrentValue" in (field as Record<string, unknown>)) {
-              const fv = (field as Record<string, unknown>).formattedCurrentValue;
-              return fv !== null && fv !== undefined ? String(fv) : "N/A";
+
+          const numVal = (field: unknown): number | null => {
+            if (field && typeof field === "object" && "currentValue" in (field as Record<string, unknown>)) {
+              const cv = (field as Record<string, unknown>).currentValue;
+              if (cv !== null && cv !== undefined) {
+                const n = Number(cv);
+                return isNaN(n) ? null : n;
+              }
             }
-            return field !== null && field !== undefined ? String(field) : "N/A";
+            return null;
+          };
+
+          const fmtLocal = (field: unknown, fxRate: number, currency: string): string => {
+            const usd = numVal(field);
+            if (usd === null) return "N/A";
+            if (fxRate === 1 || currency === "USD") {
+              return `$${usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
+            }
+            const local = usd * fxRate;
+            return `${local.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+          };
+
+          const fieldLabel = (field: unknown, fallback: string): string => {
+            if (field && typeof field === "object" && "label" in (field as Record<string, unknown>)) {
+              return String((field as Record<string, unknown>).label);
+            }
+            return fallback;
           };
 
           let output = `Gross-to-net breakdown for report ${gp_report_id} (${data.length} worker(s)):\n\n`;
           for (const item of data) {
             const row = item as Record<string, unknown>;
-            const name = val(row.employeeName);
-            const jobTitle = val(row.jobTitle);
-            const department = val(row.employeeDepartment);
-            const currency = val(row.originalCurrency);
-            const baseSalary = fmtVal(row.baseSalary ?? row.monthlyGrossSalaryRegularWork);
-            const grossPay = fmtVal(row.grossPay);
-            const netPay = fmtVal(row.netPay);
-            const employerCost = fmtVal(row.employerCost);
-            const contractId = val(row.contractId);
+            const name = textVal(row.employeeName);
+            const jobTitle = textVal(row.jobTitle);
+            const department = textVal(row.employeeDepartment);
+            const currency = textVal(row.originalCurrency);
+            const convertedCurrency = textVal(row.convertedCurrency);
+            const fxRate = numVal(row.fxRate) ?? 1;
+            const contractId = textVal(row.contractId);
+
+            const baseSalary = fmtLocal(row.baseSalary, fxRate, currency);
+            const grossPay = fmtLocal(row.grossPay, fxRate, currency);
+            const netPay = fmtLocal(row.netPay, fxRate, currency);
+            const employerCost = fmtLocal(row.employerCost, fxRate, currency);
 
             output += `- ${name} (${jobTitle})\n`;
-            output += `  Contract: ${contractId} | Dept: ${department} | Currency: ${currency}\n`;
+            output += `  Contract: ${contractId} | Dept: ${department}\n`;
+            if (currency !== convertedCurrency) {
+              output += `  Currency: ${currency} (FX rate: ${fxRate.toFixed(4)} ${currency}/${convertedCurrency})\n`;
+            } else {
+              output += `  Currency: ${currency}\n`;
+            }
             output += `  Base salary: ${baseSalary} | Gross: ${grossPay} | Net: ${netPay} | Employer cost: ${employerCost}\n`;
 
-            // Show deduction items (ee* fields)
-            const deductions: string[] = [];
+            // Show employee deductions (ee* fields) and employer contributions (er* fields)
+            const eeDeductions: string[] = [];
+            const erContributions: string[] = [];
+            const otherItems: string[] = [];
+            const skipKeys = new Set(["contractId", "employeeName", "employeeNumber", "employeeDepartment",
+              "employeePayDate", "costCenter", "entityName", "workerId", "externalWorkerId", "taxId",
+              "socialSecurityNumber", "employmentEndDate", "jobTitle", "originalCurrency", "convertedCurrency",
+              "fxRate", "totalHours", "baseSalary", "grossPay", "netPay", "employerCost", "netAddition", "netDeduction"]);
+
             for (const [key, field] of Object.entries(row)) {
+              if (skipKeys.has(key)) continue;
+              const usd = numVal(field);
+              if (usd === null || usd === 0) continue;
+              const label = fieldLabel(field, key);
+              const amt = fmtLocal(field, fxRate, currency);
               if (key.startsWith("ee") || key === "taxPaid") {
-                const label = field && typeof field === "object" && "label" in (field as Record<string, unknown>)
-                  ? String((field as Record<string, unknown>).label)
-                  : key;
-                const amount = fmtVal(field);
-                if (amount !== "N/A" && amount !== "$0.00" && amount !== "0") {
-                  deductions.push(`${label}: ${amount}`);
-                }
+                eeDeductions.push(`${label}: ${amt}`);
+              } else if (key.startsWith("er")) {
+                erContributions.push(`${label}: ${amt}`);
+              } else {
+                otherItems.push(`${label}: ${amt}`);
               }
             }
-            if (deductions.length > 0) {
-              output += `  Deductions: ${deductions.join(", ")}\n`;
+            if (eeDeductions.length > 0) {
+              output += `  Employee deductions: ${eeDeductions.join(", ")}\n`;
+            }
+            if (erContributions.length > 0) {
+              output += `  Employer contributions: ${erContributions.join(", ")}\n`;
+            }
+            if (otherItems.length > 0) {
+              output += `  Other: ${otherItems.join(", ")}\n`;
             }
             output += "\n";
           }
           return success(output);
         }
         return success(`Gross-to-net for report ${gp_report_id}:\n${JSON.stringify(data, null, 2)}`);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_gross_to_net_csv",
+    "Get gross-to-net payroll data as CSV for a closed payroll report. Useful for spreadsheet analysis and payroll auditing. Note: amounts in the CSV are in the API's consolidated currency (USD) — use the FX Rate and Original Currency columns to convert to local currency.",
+    { gp_report_id: z.string().describe("Global payroll report ID (use deel_get_payroll_reports to find CLOSED reports)") },
+    async ({ gp_report_id }) => {
+      try {
+        const res = await deelRequest<unknown>(
+          `/gp/reports/${gp_report_id}/gross_to_net/csv`
+        );
+        // The API returns the CSV as a JSON-encoded string
+        const csv = typeof res === "string" ? res : String((res as unknown as Record<string, unknown>).data ?? res);
+        if (!csv || csv.length === 0) {
+          return success(`No CSV data for report ${gp_report_id}. This report may be OPEN or LOCKED.`);
+        }
+        const lineCount = csv.split("\n").filter(l => l.trim()).length;
+        return success(`Gross-to-net CSV for report ${gp_report_id} (${lineCount - 1} worker rows):\n\n${csv}`);
       } catch (e) {
         return error(e instanceof Error ? e.message : String(e));
       }
@@ -164,6 +234,43 @@ export function registerPayrollTools(server: McpServer): void {
         let output = `Found ${banks.length} bank account(s) for worker ${worker_id}:\n\n`;
         for (const b of banks) {
           output += `- ${b.bank_name ?? "Bank"} | Account: ***${String(b.account_number ?? b.iban ?? "").slice(-4)} | Currency: ${b.currency ?? "N/A"} | Primary: ${b.is_primary ?? "N/A"}\n`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_worker_bank_guide",
+    "Get banking field requirements for a specific worker's country, showing what bank details are needed (e.g. IBAN, account number, routing number) with validation rules.",
+    { worker_id: z.string().describe("The unique Deel worker ID (GP workers only)") },
+    async ({ worker_id }) => {
+      try {
+        const res = await deelRequest<Array<Record<string, unknown>>>(
+          `/gp/workers/${worker_id}/banks/guide`
+        );
+        const fields = res.data;
+        if (!fields || fields.length === 0) {
+          return success(`No bank guide available for worker ${worker_id}.`);
+        }
+        let output = `Bank form requirements for worker ${worker_id} (${fields.length} field(s)):\n\n`;
+        for (const f of fields) {
+          const required = f.required ? "REQUIRED" : "optional";
+          output += `- ${f.label ?? f.key ?? "Field"} (${f.key ?? "N/A"}) [${f.type ?? "text"}] — ${required}\n`;
+          const validations = f.validations as Array<Record<string, unknown>> | undefined;
+          if (validations && validations.length > 0) {
+            const rules = validations.map(v => `${v.type}: ${v.value}`).join(", ");
+            output += `  Validations: ${rules}\n`;
+          }
+          const allowed = f.values_allowed as Array<Record<string, unknown>> | undefined;
+          if (allowed && allowed.length > 0 && allowed.length <= 10) {
+            const vals = allowed.map(v => `${v.label ?? v.value}`).join(", ");
+            output += `  Allowed values: ${vals}\n`;
+          } else if (allowed && allowed.length > 10) {
+            output += `  Allowed values: ${allowed.length} options (first 5: ${allowed.slice(0, 5).map(v => v.label ?? v.value).join(", ")}...)\n`;
+          }
         }
         return success(output);
       } catch (e) {

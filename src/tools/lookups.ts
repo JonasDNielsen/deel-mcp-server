@@ -101,6 +101,51 @@ export function registerLookupTools(server: McpServer): void {
   );
 
   server.tool(
+    "deel_list_adjustment_categories",
+    "List available adjustment categories for payroll adjustments (e.g. Train, Flight, Internet, Bonus).",
+    {},
+    async () => {
+      try {
+        const res = await deelRequest<Array<Record<string, unknown>>>("/adjustments/categories");
+        const categories = res.data;
+        if (!categories || categories.length === 0) {
+          return success("No adjustment categories found.");
+        }
+        let output = `${categories.length} adjustment categories:\n\n`;
+        for (const c of categories) {
+          output += `- ${c.name ?? "N/A"} (ID: ${c.id ?? "N/A"}) | Unit: ${c.unit_type ?? "N/A"}\n`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_list_webhook_event_types",
+    "List available webhook event types that can be subscribed to, with descriptions and example payloads.",
+    {},
+    async () => {
+      try {
+        const res = await deelRequest<Array<Record<string, unknown>>>("/webhooks/events/types");
+        const types = res.data;
+        if (!types || types.length === 0) {
+          return success("No webhook event types found.");
+        }
+        let output = `${types.length} webhook event types:\n\n`;
+        for (const t of types) {
+          output += `- ${t.name ?? "N/A"} (${t.module_label ?? t.module_name ?? "N/A"})\n`;
+          if (t.description) output += `  ${t.description}\n`;
+        }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
     "deel_lookup_time_off_types",
     "Get the list of time off types (e.g. vacation, sick leave, personal).",
     {},

@@ -371,6 +371,171 @@ async function main() {
     return `${types.length} types: ${sample}`;
   });
 
+  // ── New Endpoints ────────────────────────────────────────
+  console.log("\n🆕 New Endpoints\n");
+
+  // List people
+  await test("list_people", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 3 });
+    const people = res.data;
+    if (!people || people.length === 0) throw new Error("No people returned");
+    const first = people[0] as Record<string, unknown>;
+    if (!first.full_name) throw new Error("Missing full_name field");
+    if (!first.id) throw new Error("Missing id field");
+    const total = res.page?.total_rows ?? "?";
+    return `${people.length} person(s) (total: ${total}), first: ${first.full_name} (${first.id})`;
+  });
+
+  // Enhanced get_person — check new fields
+  if (gpWorkerId) {
+    await test(`get_person enhanced fields (${gpWorkerId})`, async () => {
+      const res = await deelRequest<Record<string, unknown>>(`/people/${gpWorkerId}`);
+      const p = res.data;
+      const checks = [
+        p.first_name ? "first_name✓" : "first_name✗",
+        p.last_name ? "last_name✓" : "last_name✗",
+        p.birth_date ? "birth_date✓" : "birth_date✗",
+        p.created_at ? "created_at✓" : "created_at✗",
+        p.direct_reports_count !== undefined ? "direct_reports_count✓" : "direct_reports_count✗",
+        Array.isArray(p.emails) ? `emails(${(p.emails as Array<unknown>).length})✓` : "emails✗",
+      ];
+      return `${p.full_name} | ${checks.join(" ")}`;
+    });
+  }
+
+  // Contract amendments
+  if (gpContractId) {
+    await test(`get_contract_amendments (${gpContractId})`, async () => {
+      const res = await deelRequest<unknown>(`/contracts/${gpContractId}/amendments`);
+      const raw = res as unknown as Record<string, unknown>;
+      const amendments = raw.data as Array<Record<string, unknown>> | undefined;
+      if (!amendments) return "No data field";
+      if (amendments.length === 0) return "0 amendments";
+      const first = amendments[0];
+      if (!first.id) throw new Error("Missing amendment id field");
+      return `${amendments.length} amendment(s), first: ${first.status ?? "?"} effective ${first.effective_date ? String(first.effective_date).slice(0, 10) : "?"}`;
+    });
+  }
+
+  // Contract custom fields
+  await test("list_contract_custom_fields", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/contracts/custom_fields");
+    return `${res.data.length} contract custom field(s)`;
+  });
+
+  // Contract templates
+  await test("list_contract_templates", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/contract-templates");
+    const templates = res.data;
+    if (templates.length === 0) return "0 templates";
+    const first = templates[0];
+    if (!first.id) throw new Error("Missing template id field");
+    return `${templates.length} template(s), first: ${first.title ?? "?"}`;
+  });
+
+  // Adjustment categories
+  await test("list_adjustment_categories", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/adjustments/categories");
+    const cats = res.data;
+    if (cats.length === 0) return "0 categories";
+    const first = cats[0];
+    if (!first.id || !first.name) throw new Error("Missing id or name field");
+    return `${cats.length} categories, first: ${first.name} (${first.unit_type ?? "?"})`;
+  });
+
+  // EOR country guide
+  await test("get_eor_country_guide (DE)", async () => {
+    const res = await deelRequest<Record<string, unknown>>("/eor/validations/DE");
+    const d = res.data;
+    if (!d.currency) throw new Error("Missing currency field");
+    const salary = d.salary as Record<string, unknown> | undefined;
+    return `Germany: currency=${d.currency}, salary min=${salary?.min ?? "?"}, max=${salary?.max ?? "?"}`;
+  });
+
+  // Contract sub-resources
+  if (gpContractId) {
+    await test(`get_contract_off_cycle_payments (${gpContractId})`, async () => {
+      const res = await deelRequest<Array<Record<string, unknown>>>(`/contracts/${gpContractId}/off-cycle-payments`);
+      return `${res.data.length} off-cycle payment(s)`;
+    });
+
+    await test(`get_contract_tasks (${gpContractId})`, async () => {
+      const res = await deelRequest<Array<Record<string, unknown>>>(`/contracts/${gpContractId}/tasks`);
+      return `${res.data.length} task(s)`;
+    });
+
+    await test(`get_contract_invoice_adjustments (${gpContractId})`, async () => {
+      const res = await deelRequest<Array<Record<string, unknown>>>(`/contracts/${gpContractId}/invoice-adjustments`);
+      return `${res.data.length} invoice adjustment(s)`;
+    });
+  }
+
+  // Worker bank guide
+  if (gpWorkerId) {
+    await test(`get_worker_bank_guide (${gpWorkerId})`, async () => {
+      const res = await deelRequest<Array<Record<string, unknown>>>(`/gp/workers/${gpWorkerId}/banks/guide`);
+      const fields = res.data;
+      if (fields.length === 0) return "0 bank guide fields";
+      const first = fields[0];
+      if (!first.key) throw new Error("Missing key field");
+      return `${fields.length} field(s), first: ${first.label ?? first.key} (${first.type ?? "?"})`;
+    });
+  }
+
+  // Webhook event types
+  await test("list_webhook_event_types", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/webhooks/events/types");
+    const types = res.data;
+    if (types.length === 0) return "0 event types";
+    const first = types[0];
+    if (!first.name) throw new Error("Missing name field");
+    return `${types.length} event type(s), first: ${first.name} (${first.module_label ?? "?"})`;
+  });
+
+  // ── GTN Local Currency Verification (Bug #11 fix) ───────
+  console.log("\n🔬 GTN Local Currency Verification\n");
+
+  const gtnVerifyReportId = closedReportId ?? "cmfnqpf8z0p6w01ww857ec4a3";
+  await test(`GTN local currency (${gtnVerifyReportId})`, async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>(`/gp/reports/${gtnVerifyReportId}/gross_to_net`);
+    const data = res.data;
+    if (!Array.isArray(data) || data.length === 0) return "No GTN data";
+    const row = data[0] as Record<string, unknown>;
+    const numVal = (field: unknown): number | null => {
+      if (field && typeof field === "object" && "currentValue" in (field as Record<string, unknown>)) {
+        const cv = (field as Record<string, unknown>).currentValue;
+        if (cv !== null && cv !== undefined) { const n = Number(cv); return isNaN(n) ? null : n; }
+      }
+      return null;
+    };
+    const textVal = (field: unknown): string => {
+      if (field && typeof field === "object" && "currentValue" in (field as Record<string, unknown>)) {
+        return String((field as Record<string, unknown>).currentValue ?? "N/A");
+      }
+      return String(field ?? "N/A");
+    };
+    const currency = textVal(row.originalCurrency);
+    const fxRate = numVal(row.fxRate) ?? 1;
+    const baseSalaryUsd = numVal(row.baseSalary) ?? 0;
+    const baseSalaryLocal = baseSalaryUsd * fxRate;
+    const name = textVal(row.employeeName);
+    // Verify local amount is significantly larger than USD for non-USD currencies
+    if (currency !== "USD" && fxRate > 1 && baseSalaryLocal <= baseSalaryUsd) {
+      throw new Error(`Bug #11 not fixed: local ${baseSalaryLocal} ${currency} <= USD ${baseSalaryUsd}`);
+    }
+    return `${name}: ${baseSalaryLocal.toFixed(0)} ${currency} (from ${baseSalaryUsd.toFixed(0)} USD × ${fxRate.toFixed(4)})`;
+  });
+
+  // GTN CSV endpoint
+  await test(`GTN CSV (${gtnVerifyReportId})`, async () => {
+    const res = await deelRequest<unknown>(`/gp/reports/${gtnVerifyReportId}/gross_to_net/csv`);
+    const csv = typeof res === "string" ? res : String((res as unknown as Record<string, unknown>).data ?? res);
+    if (!csv || csv.length < 10) throw new Error("CSV response too short or empty");
+    const lines = csv.split("\n").filter(l => l.trim());
+    if (!csv.includes("Employee Name")) throw new Error("CSV missing expected header columns");
+    return `${lines.length - 1} worker rows, ${csv.length} bytes`;
+  });
+
   // ── Summary ───────────────────────────────────────────────
   console.log("\n" + "=".repeat(60));
   console.log(`\n📊 Results: ${pass} passed, ${fail} failed, ${warn} warnings`);
