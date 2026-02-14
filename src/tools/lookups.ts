@@ -50,29 +50,26 @@ export function registerLookupTools(server: McpServer): void {
 
   server.tool(
     "deel_lookup_job_titles",
-    "Search or browse available job titles on Deel. Results are paginated (99 per page). Use 'search' to filter by name, or 'offset' to browse pages.",
+    "Browse available job titles on Deel. Returns 99 titles per page with cursor-based pagination. Use the cursor from a previous response to get the next page.",
     {
-      search: z.string().optional().describe("Search query to filter job titles by name"),
-      offset: z.number().min(0).optional().describe("Pagination offset (default 0, increment by 99 for next page)"),
+      cursor: z.string().optional().describe("Pagination cursor from previous response to get next page"),
     },
-    async ({ search, offset }) => {
+    async ({ cursor }) => {
       try {
         const params: Record<string, string | number | undefined> = {};
-        if (search) params.search = search;
-        if (offset) params.offset = offset;
+        if (cursor) params.cursor = cursor;
 
         const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/job-titles", params);
         const titles = res.data;
         if (!titles || titles.length === 0) {
-          return success(search ? `No job titles matching "${search}".` : "No job titles data available.");
+          return success("No job titles data available.");
         }
-        const currentOffset = offset ?? 0;
-        let output = `${titles.length} job titles (offset ${currentOffset}):\n\n`;
+        let output = `${titles.length} job titles:\n\n`;
         for (const t of titles) {
           output += `- ${t.name ?? t.title ?? "N/A"} (ID: ${t.id ?? "N/A"})\n`;
         }
-        if (titles.length >= 99) {
-          output += `\n[More results available — use offset: ${currentOffset + 99} for next page]`;
+        if (res.page?.cursor) {
+          output += `\n[More results available — use cursor: "${res.page.cursor}"]`;
         }
         return success(output);
       } catch (e) {

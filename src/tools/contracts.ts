@@ -9,9 +9,9 @@ export function registerContractTools(server: McpServer): void {
     "List all contracts in the organization with optional filtering. Returns contract type, status, worker info, and compensation details.",
     {
       contract_type: z
-        .string()
+        .enum(["global_payroll", "hris_direct_employee", "pay_as_you_go_time_based"])
         .optional()
-        .describe("Filter by contract type. Known values: global_payroll, hris_direct_employee, pay_as_you_go_time_based"),
+        .describe("Filter by contract type"),
       status: z
         .enum(["in_progress", "new", "processing", "waiting_for_input", "under_review", "cancelled"])
         .optional()

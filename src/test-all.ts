@@ -337,22 +337,26 @@ async function main() {
     return `${res.data.length} currencies`;
   });
 
+  let jobTitlesCursor: string | undefined;
+  let page1FirstTitle: string | undefined;
+
   await test("lookup_job_titles (page 1)", async () => {
     const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/job-titles");
-    return `${res.data.length} titles (page 1)`;
+    page1FirstTitle = String(res.data[0]?.name ?? "");
+    jobTitlesCursor = res.page?.cursor;
+    return `${res.data.length} titles, first: "${page1FirstTitle}", cursor: ${jobTitlesCursor ? "present" : "missing"}`;
   });
 
-  await test("lookup_job_titles (page 2, offset=99)", async () => {
-    const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/job-titles", { offset: 99 });
-    if (res.data.length === 0) throw new Error("WARN: offset=99 returned 0 results — API may not support offset param");
-    return `${res.data.length} titles (page 2)`;
-  });
-
-  await test("lookup_job_titles (search=Engineer)", async () => {
-    const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/job-titles", { search: "Engineer" });
-    if (res.data.length === 0) throw new Error("WARN: search=Engineer returned 0 — API may not support search param");
-    return `${res.data.length} titles matching "Engineer"`;
-  });
+  if (jobTitlesCursor) {
+    await test("lookup_job_titles (page 2 via cursor)", async () => {
+      const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/job-titles", { cursor: jobTitlesCursor });
+      const page2FirstTitle = String(res.data[0]?.name ?? "");
+      if (page2FirstTitle === page1FirstTitle) {
+        throw new Error(`Page 2 returned same data as page 1 (first title: "${page2FirstTitle}")`);
+      }
+      return `${res.data.length} titles, first: "${page2FirstTitle}" (DIFFERENT from page 1 ✓)`;
+    });
+  }
 
   await test("lookup_seniorities", async () => {
     const res = await deelRequest<Array<Record<string, unknown>>>("/lookups/seniorities");
