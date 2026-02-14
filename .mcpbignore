@@ -1,0 +1,36 @@
+src/
+*.ts
+tsconfig.json
+.env
+.env.example
+.git/
+.gitignore
+.claude/
+*.mcpb
+test-*.ts
+
+# Dev dependencies not needed at runtime
+node_modules/@types/
+node_modules/typescript/
+
+# Unnecessary files in node_modules
+node_modules/**/test/
+node_modules/**/tests/
+node_modules/**/spec/
+node_modules/**/.github/
+node_modules/**/example/
+node_modules/**/examples/
+node_modules/**/benchmark/
+node_modules/**/*.test-d.ts
+node_modules/**/*.md
+node_modules/**/*.txt
+node_modules/**/LICENSE*
+node_modules/**/CHANGELOG*
+node_modules/**/HISTORY*
+node_modules/**/changelog*
+node_modules/**/.prettierrc*
+node_modules/**/.eslintrc*
+node_modules/**/eslint.config*
+node_modules/**/.gitattributes
+node_modules/**/.npmignore
+node_modules/**/.runkit_example.js

@@ -1,0 +1,72 @@
+{
+  "manifest_version": "0.3",
+  "name": "deel-mcp-server",
+  "version": "1.0.0",
+  "description": "Read-only access to Deel HR and payroll data through Claude",
+  "display_name": "Deel HR & Payroll",
+  "long_description": "Query your Deel organization data using natural language. Access contracts, payroll, invoices, payments, time-off, teams, departments, and more — all read-only and safe for everyday use.",
+  "author": {
+    "name": "Accrease"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JonasDNielsen/deel-mcp-server.git"
+  },
+  "keywords": ["deel", "hr", "payroll", "contracts", "invoices"],
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "build/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/build/index.js"],
+      "env": {
+        "DEEL_API_TOKEN": "${user_config.api_token}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "deel_get_organization", "description": "Get organization details" },
+    { "name": "deel_list_legal_entities", "description": "List legal entities" },
+    { "name": "deel_get_person", "description": "Get worker/employee details by ID" },
+    { "name": "deel_list_people_custom_fields", "description": "List custom fields for people" },
+    { "name": "deel_list_contracts", "description": "List contracts with filters" },
+    { "name": "deel_get_contract_adjustments", "description": "Get contract adjustments" },
+    { "name": "deel_get_contract_timesheets", "description": "Get contract timesheets" },
+    { "name": "deel_get_payroll_reports", "description": "Get payroll reports by legal entity" },
+    { "name": "deel_get_gross_to_net", "description": "Get gross-to-net calculations" },
+    { "name": "deel_get_worker_payslips", "description": "Get worker payslips" },
+    { "name": "deel_get_worker_banks", "description": "Get worker bank accounts" },
+    { "name": "deel_list_invoices", "description": "List salary invoices" },
+    { "name": "deel_list_deel_invoices", "description": "List Deel fee invoices" },
+    { "name": "deel_list_payments", "description": "List payment receipts" },
+    { "name": "deel_get_payment_breakdown", "description": "Get payment breakdown" },
+    { "name": "deel_list_time_off_requests", "description": "List time off requests" },
+    { "name": "deel_get_time_off_entitlements", "description": "Get time off entitlements" },
+    { "name": "deel_list_teams", "description": "List organization teams" },
+    { "name": "deel_list_departments", "description": "List organization departments" },
+    { "name": "deel_list_managers", "description": "List organization managers" },
+    { "name": "deel_get_eor_benefits", "description": "Get EOR contract benefits" },
+    { "name": "deel_list_worker_documents", "description": "List worker documents" },
+    { "name": "deel_lookup_countries", "description": "List supported countries" },
+    { "name": "deel_lookup_currencies", "description": "List supported currencies" },
+    { "name": "deel_lookup_job_titles", "description": "List job titles" },
+    { "name": "deel_lookup_seniorities", "description": "List seniority levels" },
+    { "name": "deel_lookup_time_off_types", "description": "List time off types" }
+  ],
+  "user_config": {
+    "api_token": {
+      "type": "string",
+      "title": "Deel API Token",
+      "description": "Your Deel API token. Generate one at Deel → More → Developer → Access Tokens.",
+      "required": true,
+      "sensitive": true
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
