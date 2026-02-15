@@ -90,7 +90,7 @@ export function registerPeopleTools(server: McpServer): void {
   server.tool(
     "deel_get_person",
     "Get detailed information about a specific worker/employee by their ID, including personal details, birth date, nationality, emails, employment type, compensation, direct reports, and custom fields.",
-    { worker_id: z.string().describe("The unique Deel worker/person ID") },
+    { worker_id: z.string().describe("The unique Deel worker/person UUID (from deel_list_people, not the numeric Employee Number from GTN reports)") },
     async ({ worker_id }) => {
       try {
         const res = await deelRequest<Record<string, unknown>>(`/people/${worker_id}`);
@@ -154,7 +154,7 @@ export function registerPeopleTools(server: McpServer): void {
           if (payment) {
             const rate = payment.rate !== undefined && payment.rate !== null ? Number(payment.rate) : null;
             const fmtRate = rate !== null && !isNaN(rate) ? rate.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "N/A";
-            const scaleMap: Record<string, string> = { monthly: "month", hourly: "hour", weekly: "week", yearly: "year", annually: "year", biweekly: "2 weeks" };
+            const scaleMap: Record<string, string> = { monthly: "month", hourly: "hour", weekly: "week", yearly: "year", annually: "year", annual: "year", biweekly: "2 weeks" };
             const rawScale = String(payment.scale ?? "N/A").toLowerCase();
             const scale = scaleMap[rawScale] ?? rawScale;
             lines.push(`Compensation: ${fmtRate} ${payment.currency ?? ""} per ${scale}`);
@@ -365,6 +365,7 @@ export function registerPeopleTools(server: McpServer): void {
           biweekly: 26,
           yearly: 1,
           annually: 1,
+          annual: 1,
         };
 
         // Group: hiringType → country → currency → { count, total }

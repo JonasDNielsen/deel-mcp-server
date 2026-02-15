@@ -125,7 +125,7 @@ export function registerInvoicePaymentTools(server: McpServer): void {
 
   server.tool(
     "deel_get_payment_breakdown",
-    "Get the detailed breakdown of a specific payment, showing per-worker amounts with component breakdown (work, bonus, expenses, deductions, etc.). Use the payment ID from deel_list_payments (the hash ID, not the REC- label).",
+    "Get the detailed breakdown of a specific payment, showing per-worker amounts with component breakdown (work, bonus, expenses, deductions, etc.). Use the payment ID from deel_list_payments (the hash ID, not the REC- label). Note: Global Payroll payments show the Deel payroll entity as the payee — use deel_get_gross_to_net for per-worker GP breakdown.",
     { payment_id: z.string().describe("The unique payment ID (hash format from list_payments, e.g. '8gpu7JRY5bq8r4b83FmBB')") },
     async ({ payment_id }) => {
       try {

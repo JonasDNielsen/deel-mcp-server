@@ -263,7 +263,7 @@ export function registerPayrollTools(server: McpServer): void {
 
   server.tool(
     "deel_get_worker_payslips",
-    "Get payslips for a specific worker, showing historical salary payments.",
+    "Get payslips for a specific worker. Returns payslip ID, period dates, and status. Note: gross/net amounts are only available for AVAILABLE payslips — BLOCKED payslips are not yet released. For detailed pay data, use deel_get_gross_to_net instead.",
     {
       worker_id: z.string().describe("The unique Deel worker ID"),
       limit: z.number().min(1).max(99).optional().describe("Results per page"),

@@ -92,7 +92,7 @@ export function registerContractTools(server: McpServer): void {
         if (comp) {
           const amount = comp.amount ?? "N/A";
           const currency = comp.currency_code ?? "";
-          const scaleMap: Record<string, string> = { monthly: "month", hourly: "hour", weekly: "week", yearly: "year", annually: "year", biweekly: "2 weeks" };
+          const scaleMap: Record<string, string> = { monthly: "month", hourly: "hour", weekly: "week", yearly: "year", annually: "year", annual: "year", biweekly: "2 weeks" };
           const rawScale = String(comp.scale ?? comp.frequency ?? "N/A").toLowerCase();
           const scale = scaleMap[rawScale] ?? rawScale;
           output += `\nCompensation: ${amount} ${currency} per ${scale}\n`;

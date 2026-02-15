@@ -717,6 +717,30 @@ async function main() {
     return "No null emails found in data";
   });
 
+  // ── V4 Fix Validation ───────────────────────────────────
+  console.log("\n🔧 V4 Fixes\n");
+
+  // NO cost comparison: annual scale should NOT be multiplied by 12
+  await test("V4: NO cost comparison (annual scale fix)", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 100 });
+    const noActive = res.data.filter(p => p.country === "NO" && p.hiring_status === "active");
+    if (noActive.length === 0) return "WARN: No active NO workers";
+    let totalAnnual = 0;
+    const scaleMap: Record<string, number> = { monthly: 12, hourly: 2080, weekly: 52, biweekly: 26, yearly: 1, annually: 1, annual: 1 };
+    for (const p of noActive) {
+      const emps = p.employments as Array<Record<string, unknown>> | undefined;
+      const payment = (emps?.[0] as Record<string, unknown> | undefined)?.payment as Record<string, unknown> | undefined;
+      if (!payment?.rate) continue;
+      const rawScale = String(payment.scale ?? "monthly").toLowerCase();
+      const multiplier = scaleMap[rawScale] ?? 12;
+      totalAnnual += Number(payment.rate) * multiplier;
+    }
+    const avg = totalAnnual / noActive.length;
+    // Avg should be < 2M NOK (reasonable salary), not 9M+
+    if (avg > 2_000_000) throw new Error(`NO avg still inflated: ${avg.toLocaleString()} NOK`);
+    return `NO: ${noActive.length} workers, avg ${avg.toLocaleString("en-US", { maximumFractionDigits: 0 })} NOK/year`;
+  });
+
   // ── Summary ───────────────────────────────────────────────
   console.log("\n" + "=".repeat(60));
   console.log(`\n📊 Results: ${pass} passed, ${fail} failed, ${warn} warnings`);

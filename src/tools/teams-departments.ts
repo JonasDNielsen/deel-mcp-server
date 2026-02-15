@@ -70,7 +70,7 @@ export function registerTeamsDepartmentsTools(server: McpServer): void {
 
   server.tool(
     "deel_list_managers",
-    "List all managers in the organization with their reporting structure.",
+    "List managers in the organization who have an explicit manager role. Note: this may not include everyone with direct reports — use deel_get_org_chart for the complete reporting hierarchy.",
     {
       limit: z.number().min(1).max(99).optional().describe("Results per page"),
       cursor: z.string().optional().describe("Cursor for pagination"),
