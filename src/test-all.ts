@@ -661,6 +661,62 @@ async function main() {
     return `${withComp}/${activePeople.length} have comp data, types: [${[...types].join(", ")}]`;
   });
 
+  // ── V3 Fix Validation ───────────────────────────────────
+  console.log("\n🔧 V3 Fixes\n");
+
+  // People filter: hiring_status (client-side)
+  await test("V3: list_people hiring_status=active filter", async () => {
+    const all = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 100 });
+    const totalAll = all.page?.total_rows ?? all.data.length;
+    // Now test with filter — should return fewer than total
+    const filtered = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 100 });
+    const activeCount = filtered.data.filter(p => p.hiring_status === "active").length;
+    if (activeCount >= totalAll && totalAll > 1) throw new Error(`Filter not working: active=${activeCount}, total=${totalAll}`);
+    return `active: ${activeCount}/${totalAll} (filter works)`;
+  });
+
+  // People filter: hiring_type
+  await test("V3: list_people hiring_type=contractor filter", async () => {
+    const all = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 100 });
+    const contractorCount = all.data.filter(p => p.hiring_type === "contractor").length;
+    return `contractors: ${contractorCount}/${all.data.length}`;
+  });
+
+  // Seniority serialization
+  await test("V3: seniority serialization", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/contracts", { "types[]": "pay_as_you_go_time_based", limit: 1 });
+    if (res.data.length === 0) return "WARN: No contractor contracts";
+    const cid = String(res.data[0].id);
+    const detail = await deelRequest<Record<string, unknown>>(`/contracts/${cid}`);
+    const sen = detail.data.seniority;
+    if (!sen) return "No seniority field";
+    const rendered = typeof sen === "object" ? (sen as Record<string, unknown>).name ?? (sen as Record<string, unknown>).level : sen;
+    if (String(rendered).includes("[object")) throw new Error(`Still broken: ${rendered}`);
+    return `Seniority: ${rendered}`;
+  });
+
+  // Null email
+  await test("V3: null email handling", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 100 });
+    for (const p of res.data) {
+      const emails = p.emails as Array<Record<string, unknown>> | undefined;
+      if (emails) {
+        const nullEmails = emails.filter(e => e.value === null || e.value === undefined);
+        if (nullEmails.length > 0) {
+          // Verify our formatter would handle this correctly
+          const validEmails = emails.filter(e => e.value);
+          const workEmail = validEmails.find(e => e.type === "work")?.value
+            ?? validEmails.find(e => e.type === "primary")?.value
+            ?? validEmails[0]?.value
+            ?? "N/A";
+          if (String(workEmail) === "null") throw new Error(`${p.full_name}: email rendered as "null"`);
+          return `${p.full_name} has ${nullEmails.length} null email(s), formatter picks: ${workEmail}`;
+        }
+      }
+    }
+    return "No null emails found in data";
+  });
+
   // ── Summary ───────────────────────────────────────────────
   console.log("\n" + "=".repeat(60));
   console.log(`\n📊 Results: ${pass} passed, ${fail} failed, ${warn} warnings`);

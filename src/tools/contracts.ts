@@ -92,7 +92,9 @@ export function registerContractTools(server: McpServer): void {
         if (comp) {
           const amount = comp.amount ?? "N/A";
           const currency = comp.currency_code ?? "";
-          const scale = comp.scale ?? comp.frequency ?? "N/A";
+          const scaleMap: Record<string, string> = { monthly: "month", hourly: "hour", weekly: "week", yearly: "year", annually: "year", biweekly: "2 weeks" };
+          const rawScale = String(comp.scale ?? comp.frequency ?? "N/A").toLowerCase();
+          const scale = scaleMap[rawScale] ?? rawScale;
           output += `\nCompensation: ${amount} ${currency} per ${scale}\n`;
           if (comp.first_payment_date) output += `  First payment: ${comp.first_payment_date}\n`;
           if (comp.gross_annual_salary) output += `  Gross annual salary: ${comp.gross_annual_salary}\n`;
@@ -101,7 +103,10 @@ export function registerContractTools(server: McpServer): void {
         }
 
         if (c.job_title) output += `Job title: ${c.job_title}\n`;
-        if (c.seniority) output += `Seniority: ${c.seniority}\n`;
+        if (c.seniority) {
+          const sen = c.seniority as Record<string, unknown> | string;
+          output += `Seniority: ${typeof sen === "object" ? sen.name ?? sen.level ?? JSON.stringify(sen) : sen}\n`;
+        }
         if (c.employment_type) output += `Employment type: ${c.employment_type}\n`;
         if (c.start_date) output += `Start date: ${c.start_date}\n`;
         if (c.termination_date) output += `Termination date: ${c.termination_date}\n`;

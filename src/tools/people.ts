@@ -29,25 +29,42 @@ export function registerPeopleTools(server: McpServer): void {
     },
     async ({ hiring_status, hiring_type, limit, offset }) => {
       try {
-        const params: Record<string, string | number | undefined> = {};
-        if (hiring_status) params["hiring_status[]"] = hiring_status;
-        if (hiring_type) params["hiring_type[]"] = hiring_type;
-        if (limit !== undefined) params.limit = limit;
-        if (offset !== undefined) params.offset = offset;
+        // The /people API does not support server-side filtering by hiring_status
+        // or hiring_type, so we fetch all and filter client-side when filters are used.
+        let people: Array<Record<string, unknown>>;
+        let totalRows: number | undefined;
 
-        const res = await deelRequest<Array<Record<string, unknown>>>("/people", params);
-        const people = res.data;
-        if (!people || people.length === 0) {
-          return success("No people found.");
+        if (hiring_status || hiring_type) {
+          const allPeople = await fetchAllPeople();
+          people = allPeople.filter(p => {
+            if (hiring_status && p.hiring_status !== hiring_status) return false;
+            if (hiring_type && p.hiring_type !== hiring_type) return false;
+            return true;
+          });
+          totalRows = people.length;
+          // Apply manual pagination
+          const start = offset ?? 0;
+          const end = start + (limit ?? 100);
+          people = people.slice(start, end);
+        } else {
+          const params: Record<string, string | number | undefined> = {};
+          if (limit !== undefined) params.limit = limit;
+          if (offset !== undefined) params.offset = offset;
+          const res = await deelRequest<Array<Record<string, unknown>>>("/people", params);
+          people = res.data;
+          totalRows = res.page?.total_rows;
         }
 
-        const totalRows = res.page?.total_rows;
+        if (!people || people.length === 0) {
+          return success("No people found matching the specified criteria.");
+        }
+
         let output = `Found ${people.length} person(s)${totalRows ? ` (total: ${totalRows})` : ""}:\n\n`;
         for (const p of people) {
           const emails = p.emails as Array<Record<string, string>> | undefined;
-          const workEmail = emails?.find(e => e.type === "work")?.value
-            ?? emails?.find(e => e.type === "primary")?.value
-            ?? emails?.[0]?.value
+          const workEmail = emails?.find(e => e.type === "work" && e.value)?.value
+            ?? emails?.find(e => e.type === "primary" && e.value)?.value
+            ?? emails?.find(e => e.value)?.value
             ?? "N/A";
           const dept = p.department as Record<string, unknown> | undefined;
 
@@ -83,7 +100,8 @@ export function registerPeopleTools(server: McpServer): void {
         const emails = p.emails as Array<Record<string, string>> | undefined;
         let emailLines = "N/A";
         if (emails && emails.length > 0) {
-          emailLines = emails.map(e => `${e.value} (${e.type})`).join(", ");
+          const validEmails = emails.filter(e => e.value);
+          emailLines = validEmails.length > 0 ? validEmails.map(e => `${e.value} (${e.type})`).join(", ") : "N/A";
         }
 
         // Department
