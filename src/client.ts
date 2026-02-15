@@ -10,6 +10,25 @@ if (!API_TOKEN) {
   process.exit(1);
 }
 
+// In-memory TTL cache — avoids redundant API calls within a session.
+// Data rarely changes, so a 5-minute default is safe.
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const cache = new Map<string, { data: unknown; expiresAt: number }>();
+
+function cacheGet(key: string): unknown | undefined {
+  const entry = cache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return undefined;
+  }
+  return entry.data;
+}
+
+function cacheSet(key: string, data: unknown): void {
+  cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
 // Simple sliding-window rate limiter (5 req/sec)
 class RateLimiter {
   private timestamps: number[] = [];
@@ -56,8 +75,6 @@ export async function deelRequest<T>(
   path: string,
   params?: Record<string, string | number | undefined>
 ): Promise<DeelPaginatedResponse<T>> {
-  await rateLimiter.waitForSlot();
-
   const url = new URL(`${BASE_URL}${path}`);
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -66,6 +83,15 @@ export async function deelRequest<T>(
       }
     }
   }
+
+  // Check cache before making network request
+  const cacheKey = url.toString();
+  const cached = cacheGet(cacheKey);
+  if (cached !== undefined) {
+    return cached as DeelPaginatedResponse<T>;
+  }
+
+  await rateLimiter.waitForSlot();
 
   let lastError: Error | null = null;
 
@@ -109,7 +135,9 @@ export async function deelRequest<T>(
         throw new Error(message);
       }
 
-      return (await response.json()) as DeelPaginatedResponse<T>;
+      const result = (await response.json()) as DeelPaginatedResponse<T>;
+      cacheSet(cacheKey, result);
+      return result;
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Deel API error")) {
         throw error;
