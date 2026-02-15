@@ -3,6 +3,20 @@ import { z } from "zod";
 import { deelRequest } from "../client.js";
 import { success, error } from "../types.js";
 
+async function fetchAllPeople(): Promise<Array<Record<string, unknown>>> {
+  const all: Array<Record<string, unknown>> = [];
+  let offset = 0;
+  const limit = 100;
+  while (true) {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit, offset });
+    all.push(...res.data);
+    const total = res.page?.total_rows ?? res.data.length;
+    if (all.length >= total || res.data.length < limit) break;
+    offset += limit;
+  }
+  return all;
+}
+
 export function registerPeopleTools(server: McpServer): void {
   server.tool(
     "deel_list_people",
@@ -151,18 +165,7 @@ export function registerPeopleTools(server: McpServer): void {
     {},
     async () => {
       try {
-        // Fetch all people (paginate if needed)
-        const allPeople: Array<Record<string, unknown>> = [];
-        let offset = 0;
-        const limit = 100;
-        while (true) {
-          const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit, offset });
-          allPeople.push(...res.data);
-          const total = res.page?.total_rows ?? res.data.length;
-          if (allPeople.length >= total || res.data.length < limit) break;
-          offset += limit;
-        }
-
+        const allPeople = await fetchAllPeople();
         if (allPeople.length === 0) return success("No people found in organization.");
 
         const byCountry: Record<string, number> = {};
@@ -223,6 +226,202 @@ export function registerPeopleTools(server: McpServer): void {
         for (const f of fields) {
           output += `- ${f.label ?? f.name ?? "Unnamed"} (ID: ${f.id}) | Type: ${f.type ?? "N/A"} | Required: ${f.required ?? false}\n`;
         }
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_org_chart",
+    "Build the full organizational reporting hierarchy showing who reports to whom. Fetches all active people and renders a tree based on manager relationships. Useful for understanding org structure, reporting lines, and span of control.",
+    {},
+    async () => {
+      try {
+        const allPeople = await fetchAllPeople();
+        if (allPeople.length === 0) return success("No people found in organization.");
+
+        // Separate active vs inactive
+        const activePeople = allPeople.filter(p => p.hiring_status === "active");
+        const inactiveCount = allPeople.length - activePeople.length;
+
+        if (activePeople.length === 0) return success("No active people found in organization.");
+
+        // Build lookup: id → person
+        const byId = new Map<string, Record<string, unknown>>();
+        for (const p of activePeople) {
+          byId.set(String(p.id), p);
+        }
+
+        // Build children map: managerId → [person, ...]
+        const children = new Map<string, Array<Record<string, unknown>>>();
+        const roots: Array<Record<string, unknown>> = [];
+
+        for (const p of activePeople) {
+          const manager = p.direct_manager as Record<string, unknown> | undefined;
+          const managerId = manager?.id ? String(manager.id) : null;
+
+          if (!managerId || !byId.has(managerId)) {
+            roots.push(p);
+          } else {
+            if (!children.has(managerId)) children.set(managerId, []);
+            children.get(managerId)!.push(p);
+          }
+        }
+
+        // Sort roots and children by name
+        const sortByName = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+          String(a.full_name ?? "").localeCompare(String(b.full_name ?? ""));
+        roots.sort(sortByName);
+        for (const [, list] of children) list.sort(sortByName);
+
+        // Recursive render with cycle detection
+        const visited = new Set<string>();
+        const renderPerson = (p: Record<string, unknown>, depth: number): string => {
+          const id = String(p.id);
+          if (visited.has(id)) return "";
+          visited.add(id);
+
+          const indent = "  ".repeat(depth);
+          const dept = (p.department as Record<string, unknown> | undefined)?.name ?? "No dept";
+          let line = `${indent}${p.full_name ?? "N/A"} — ${p.job_title ?? "N/A"} (${dept})\n`;
+
+          const reports = children.get(id);
+          if (reports) {
+            for (const r of reports) {
+              line += renderPerson(r, depth + 1);
+            }
+          }
+          return line;
+        };
+
+        // Separate roots: those with direct reports (tree tops) vs standalone
+        const treeRoots = roots.filter(p => children.has(String(p.id)));
+        const standalone = roots.filter(p => !children.has(String(p.id)));
+
+        let output = `Org Chart (${activePeople.length} active people):\n\n`;
+
+        // Render tree roots first
+        for (const root of treeRoots) {
+          output += renderPerson(root, 0);
+          output += "\n";
+        }
+
+        // Then standalone (no manager, no reports)
+        if (standalone.length > 0) {
+          output += `No manager assigned (${standalone.length}):\n`;
+          for (const p of standalone) {
+            const dept = (p.department as Record<string, unknown> | undefined)?.name ?? "No dept";
+            output += `  ${p.full_name ?? "N/A"} — ${p.job_title ?? "N/A"} (${dept})\n`;
+          }
+          output += "\n";
+        }
+
+        if (inactiveCount > 0) {
+          output += `(${inactiveCount} inactive people excluded)\n`;
+        }
+
+        return success(output);
+      } catch (e) {
+        return error(e instanceof Error ? e.message : String(e));
+      }
+    }
+  );
+
+  server.tool(
+    "deel_get_cost_comparison",
+    "Compare compensation costs between contractors and employees, broken down by hiring type and country. Shows headcount, total annual compensation, and average per person for each group. Useful for budget planning and workforce mix analysis.",
+    {},
+    async () => {
+      try {
+        const allPeople = await fetchAllPeople();
+        const activePeople = allPeople.filter(p => p.hiring_status === "active");
+
+        if (activePeople.length === 0) return success("No active people found in organization.");
+
+        const scaleMap: Record<string, number> = {
+          monthly: 12,
+          hourly: 2080,
+          weekly: 52,
+          biweekly: 26,
+          yearly: 1,
+          annually: 1,
+        };
+
+        // Group: hiringType → country → currency → { count, total }
+        type CostEntry = { count: number; total: number; currency: string };
+        const groups = new Map<string, Map<string, CostEntry>>();
+        let noCompCount = 0;
+
+        for (const p of activePeople) {
+          const hiringType = String(p.hiring_type ?? "unknown");
+          const country = String(p.country ?? "Unknown");
+
+          const employments = p.employments as Array<Record<string, unknown>> | undefined;
+          const payment = (employments?.[0] as Record<string, unknown> | undefined)?.payment as Record<string, unknown> | undefined;
+
+          if (!payment || payment.rate === undefined || payment.rate === null) {
+            noCompCount++;
+            continue;
+          }
+
+          const rate = Number(payment.rate);
+          if (isNaN(rate) || rate === 0) {
+            noCompCount++;
+            continue;
+          }
+
+          const rawScale = String(payment.scale ?? "monthly").toLowerCase();
+          const multiplier = scaleMap[rawScale] ?? 12;
+          const annualCost = rate * multiplier;
+          const currency = String(payment.currency ?? "N/A");
+
+          const key = `${country}|${currency}`;
+
+          if (!groups.has(hiringType)) groups.set(hiringType, new Map());
+          const typeMap = groups.get(hiringType)!;
+
+          if (!typeMap.has(key)) {
+            typeMap.set(key, { count: 0, total: 0, currency });
+          }
+          const entry = typeMap.get(key)!;
+          entry.count++;
+          entry.total += annualCost;
+        }
+
+        // Sort hiring types: direct_employee first, then contractors, then others
+        const typeOrder: Record<string, number> = { direct_employee: 0, eor_employee: 1, contractor: 2 };
+        const sortedTypes = [...groups.entries()].sort((a, b) =>
+          (typeOrder[a[0]] ?? 99) - (typeOrder[b[0]] ?? 99)
+        );
+
+        const fmtNum = (n: number, currency: string) =>
+          `${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+
+        let output = `Cost Comparison — ${activePeople.length} active people:\n\n`;
+
+        for (const [hiringType, countryMap] of sortedTypes) {
+          const typeLabel = hiringType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          const totalCount = [...countryMap.values()].reduce((s, e) => s + e.count, 0);
+          output += `${typeLabel} (${totalCount} people):\n`;
+
+          // Sort countries by count descending
+          const sortedCountries = [...countryMap.entries()].sort((a, b) => b[1].count - a[1].count);
+          for (const [key, entry] of sortedCountries) {
+            const country = key.split("|")[0];
+            const avg = entry.total / entry.count;
+            output += `  ${country}: ${entry.count} people — ${fmtNum(entry.total, entry.currency)}/year (avg ${fmtNum(avg, entry.currency)})\n`;
+          }
+          output += "\n";
+        }
+
+        if (noCompCount > 0) {
+          output += `${noCompCount} active people have no compensation data.\n\n`;
+        }
+
+        output += `Note: Amounts are base compensation. Use deel_get_gross_to_net for total employer cost including taxes/benefits.\n`;
+
         return success(output);
       } catch (e) {
         return error(e instanceof Error ? e.message : String(e));

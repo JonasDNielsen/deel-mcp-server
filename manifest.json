@@ -67,7 +67,9 @@
     { "name": "deel_lookup_seniorities", "description": "List seniority levels" },
     { "name": "deel_list_adjustment_categories", "description": "List adjustment categories" },
     { "name": "deel_list_webhook_event_types", "description": "List webhook event types" },
-    { "name": "deel_lookup_time_off_types", "description": "List time off types" }
+    { "name": "deel_lookup_time_off_types", "description": "List time off types" },
+    { "name": "deel_get_org_chart", "description": "Build organizational reporting hierarchy" },
+    { "name": "deel_get_cost_comparison", "description": "Compare contractor vs employee costs by country" }
   ],
   "user_config": {
     "api_token": {

@@ -622,6 +622,45 @@ async function main() {
     return `Calendar: ${entRes.data.length} entities, ${first.name} has ${repRes.data.length} reports`;
   });
 
+  // ── IMP-5/6: Org Chart & Cost Comparison ─────────────────
+  console.log("\n🏢 Org Chart & Cost Comparison\n");
+
+  await test("IMP-5: org chart (tree structure)", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 100 });
+    const people = res.data;
+    const activePeople = people.filter(p => p.hiring_status === "active");
+    // Check that at least some people have direct_manager
+    const withManager = activePeople.filter(p => {
+      const mgr = p.direct_manager as Record<string, unknown> | undefined;
+      return mgr?.id != null;
+    });
+    // Verify tree can be built
+    const byId = new Set(activePeople.map(p => String(p.id)));
+    const managersInOrg = withManager.filter(p => {
+      const mgr = p.direct_manager as Record<string, unknown>;
+      return byId.has(String(mgr.id));
+    });
+    return `${activePeople.length} active, ${withManager.length} have manager, ${managersInOrg.length} managers are in org → tree buildable`;
+  });
+
+  await test("IMP-6: cost comparison (compensation data)", async () => {
+    const res = await deelRequest<Array<Record<string, unknown>>>("/people", { limit: 100 });
+    const people = res.data;
+    const activePeople = people.filter(p => p.hiring_status === "active");
+    let withComp = 0;
+    const types = new Set<string>();
+    for (const p of activePeople) {
+      const employments = p.employments as Array<Record<string, unknown>> | undefined;
+      const payment = (employments?.[0] as Record<string, unknown> | undefined)?.payment as Record<string, unknown> | undefined;
+      if (payment?.rate !== undefined && payment?.rate !== null) {
+        withComp++;
+        types.add(String(p.hiring_type ?? "unknown"));
+      }
+    }
+    if (withComp === 0) throw new Error("No people have compensation data");
+    return `${withComp}/${activePeople.length} have comp data, types: [${[...types].join(", ")}]`;
+  });
+
   // ── Summary ───────────────────────────────────────────────
   console.log("\n" + "=".repeat(60));
   console.log(`\n📊 Results: ${pass} passed, ${fail} failed, ${warn} warnings`);
