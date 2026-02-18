@@ -1,3 +1,7 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
 const BASE_URL =
   process.env.DEEL_API_BASE_URL || "https://api.letsdeel.com/rest/v2";
 const API_TOKEN = process.env.DEEL_API_TOKEN;
@@ -10,10 +14,41 @@ if (!API_TOKEN) {
   process.exit(1);
 }
 
-// In-memory TTL cache — avoids redundant API calls within a session.
-// Data rarely changes, so a 5-minute default is safe.
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+// Persistent disk-backed cache with 7-day TTL.
+// Survives MCP server restarts. In-memory map is the hot path;
+// disk file is loaded on startup and written on every new entry.
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const CACHE_DIR = join(homedir(), ".cache", "deel-mcp");
+const CACHE_FILE = join(CACHE_DIR, "api-cache.json");
+
 const cache = new Map<string, { data: unknown; expiresAt: number }>();
+
+// Load cache from disk on startup
+try {
+  mkdirSync(CACHE_DIR, { recursive: true });
+  const raw = readFileSync(CACHE_FILE, "utf-8");
+  const entries = JSON.parse(raw) as Array<[string, { data: unknown; expiresAt: number }]>;
+  const now = Date.now();
+  let loaded = 0;
+  for (const [key, entry] of entries) {
+    if (entry.expiresAt > now) {
+      cache.set(key, entry);
+      loaded++;
+    }
+  }
+  if (loaded > 0) console.error(`Cache: loaded ${loaded} entries from disk`);
+} catch {
+  // No cache file yet — that's fine
+}
+
+function cacheSaveToDisk(): void {
+  try {
+    const entries = [...cache.entries()];
+    writeFileSync(CACHE_FILE, JSON.stringify(entries), "utf-8");
+  } catch {
+    // Non-fatal — cache is still in memory
+  }
+}
 
 function cacheGet(key: string): unknown | undefined {
   const entry = cache.get(key);
@@ -27,6 +62,7 @@ function cacheGet(key: string): unknown | undefined {
 
 function cacheSet(key: string, data: unknown): void {
   cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  cacheSaveToDisk();
 }
 
 // Simple sliding-window rate limiter (5 req/sec)
