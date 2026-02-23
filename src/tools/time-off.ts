@@ -3,37 +3,60 @@ import { z } from "zod";
 import { deelRequest } from "../client.js";
 import { success, error } from "../types.js";
 
+// The /time_offs endpoint uses a non-standard response shape:
+// { page_size, count, has_next_page, next, data: [...] }
+// Auto-paginate through all pages using the `next` cursor.
+async function fetchAllTimeOff(
+  status?: string,
+  startDate?: string,
+  endDate?: string
+): Promise<Array<Record<string, unknown>>> {
+  const all: Array<Record<string, unknown>> = [];
+  let cursor: string | undefined;
+  do {
+    const params: Record<string, string | number | undefined> = {};
+    if (status) params["status[]"] = status;
+    if (startDate) params.start_date = `${startDate}T00:00:00Z`;
+    if (endDate) params.end_date = `${endDate}T23:59:59Z`;
+    if (cursor) params.next = cursor;
+
+    const res = await deelRequest<unknown>("/time_offs", params);
+    const raw = res as unknown as Record<string, unknown>;
+
+    // Extract data array from the non-standard response shape
+    const data = raw.data;
+    if (Array.isArray(data)) {
+      all.push(...data);
+    }
+
+    // Follow cursor if more pages exist
+    const hasNext = raw.has_next_page as boolean | undefined;
+    cursor = hasNext ? (raw.next as string | undefined) : undefined;
+  } while (cursor);
+  return all;
+}
+
 export function registerTimeOffTools(server: McpServer): void {
   server.tool(
     "deel_list_time_off_requests",
-    "List time off requests across the organization. Uses cursor-based pagination with 'next' parameter.",
+    "List time off requests across the organization. Returns ALL matching records (auto-paginates through all pages). Supports filtering by status and date range. Use start_date/end_date to limit results to a specific period (YYYY-MM-DD).",
     {
       status: z
         .enum(["APPROVED", "REQUESTED", "USED", "CANCELED", "REJECTED"])
         .optional()
         .describe("Filter by request status (REQUESTED = pending approval)"),
-      next: z.string().optional().describe("Pagination cursor from previous response"),
+      start_date: z
+        .string()
+        .optional()
+        .describe("Filter requests starting on or after this date (YYYY-MM-DD)"),
+      end_date: z
+        .string()
+        .optional()
+        .describe("Filter requests starting on or before this date (YYYY-MM-DD)"),
     },
-    async ({ status, next }) => {
+    async ({ status, start_date, end_date }) => {
       try {
-        const params: Record<string, string | number | undefined> = {};
-        if (status) params["status[]"] = status;
-        if (next) params.next = next;
-
-        const res = await deelRequest<unknown>("/time_offs", params);
-        const raw = res as unknown as Record<string, unknown>;
-        const data = raw.data as Record<string, unknown> | undefined;
-
-        // The time_offs endpoint may nest data differently
-        let requests: Array<Record<string, unknown>> = [];
-        if (Array.isArray(data)) {
-          requests = data;
-        } else if (data && typeof data === "object") {
-          // Data might contain a nested array
-          const items = (data as Record<string, unknown>).items ?? (data as Record<string, unknown>).time_offs;
-          if (Array.isArray(items)) requests = items;
-          else requests = [data as Record<string, unknown>];
-        }
+        const requests = await fetchAllTimeOff(status, start_date, end_date);
 
         if (requests.length === 0) {
           return success("No time off requests found.");

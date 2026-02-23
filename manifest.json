@@ -53,7 +53,7 @@
     { "name": "deel_list_deel_invoices", "description": "List Deel fee invoices" },
     { "name": "deel_list_payments", "description": "List payment receipts" },
     { "name": "deel_get_payment_breakdown", "description": "Get payment breakdown" },
-    { "name": "deel_list_time_off_requests", "description": "List time off requests" },
+    { "name": "deel_list_time_off_requests", "description": "List time off requests with auto-pagination, date range, and status filtering" },
     { "name": "deel_get_time_off_entitlements", "description": "Get time off entitlements" },
     { "name": "deel_list_teams", "description": "List organization teams" },
     { "name": "deel_list_departments", "description": "List organization departments" },

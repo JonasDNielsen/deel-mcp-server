@@ -741,6 +741,56 @@ async function main() {
     return `NO: ${noActive.length} workers, avg ${avg.toLocaleString("en-US", { maximumFractionDigits: 0 })} NOK/year`;
   });
 
+  // ── V5 Time-Off Pagination Fix ─────────────────────────
+  console.log("\n🏖️  V5 Time-Off Pagination\n");
+
+  await test("V5: time-off auto-pagination (>100 records)", async () => {
+    // Paginate through all pages to get total count
+    const all: Array<Record<string, unknown>> = [];
+    let cursor: string | undefined;
+    do {
+      const params: Record<string, string | number | undefined> = {};
+      if (cursor) params.next = cursor;
+      const res = await deelRequest<unknown>("/time_offs", params);
+      const raw = res as unknown as Record<string, unknown>;
+      const data = raw.data;
+      if (Array.isArray(data)) all.push(...data);
+      const hasNext = raw.has_next_page as boolean | undefined;
+      cursor = hasNext ? (raw.next as string | undefined) : undefined;
+    } while (cursor);
+    if (all.length <= 100) throw new Error(`Expected >100, got ${all.length} (pagination may not be working)`);
+    return `${all.length} total records across multiple pages`;
+  });
+
+  await test("V5: time-off date filtering (Feb 2026)", async () => {
+    const res = await deelRequest<unknown>("/time_offs", {
+      start_date: "2026-02-01T00:00:00Z",
+      end_date: "2026-02-28T23:59:59Z",
+    });
+    const raw = res as unknown as Record<string, unknown>;
+    const data = raw.data;
+    if (!Array.isArray(data)) throw new Error("Unexpected shape");
+    // Should find Marie Kampmann's entry (hris_profile_id: 06a48009-aba5-49f1-842f-cfe61e88fd4b)
+    const marie = data.find((r: Record<string, unknown>) => {
+      const rp = r.recipient_profile as Record<string, unknown> | undefined;
+      return rp?.hris_profile_id === "06a48009-aba5-49f1-842f-cfe61e88fd4b";
+    });
+    if (!marie) throw new Error("Marie Kampmann's vacation not found in Feb 2026 results");
+    return `${data.length} requests in Feb 2026, Marie's vacation: ${(marie as Record<string, unknown>).start_date} to ${(marie as Record<string, unknown>).end_date}`;
+  });
+
+  await test("V5: time-off status + date filter combined", async () => {
+    const res = await deelRequest<unknown>("/time_offs", {
+      "status[]": "USED",
+      start_date: "2026-02-01T00:00:00Z",
+      end_date: "2026-02-28T23:59:59Z",
+    });
+    const raw = res as unknown as Record<string, unknown>;
+    const data = raw.data;
+    if (!Array.isArray(data)) throw new Error("Unexpected shape");
+    return `${data.length} USED requests in Feb 2026`;
+  });
+
   // ── Summary ───────────────────────────────────────────────
   console.log("\n" + "=".repeat(60));
   console.log(`\n📊 Results: ${pass} passed, ${fail} failed, ${warn} warnings`);
